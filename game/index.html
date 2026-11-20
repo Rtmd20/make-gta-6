@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verde Cay — Open-World Crime</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1210; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
+  .hud-card { position: absolute; background: rgba(12, 16, 24, 0.72); border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(2px); }
+  .mission-card { top: 14px; left: 14px; width: 340px; }
+  .mission-title { font-size: 19px; font-weight: 800; color: #ffd23f; letter-spacing: 0.4px; }
+  .mission-objective { font-size: 15px; font-weight: 600; margin-top: 4px; }
+  .mission-stage { font-size: 13px; color: #cfe3ff; margin-top: 3px; }
+  .mission-next { font-size: 13px; color: #ffd9a0; margin-top: 2px; }
+  .mission-timer { font-size: 13px; color: #9fb3c8; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .top-right { top: 14px; right: 14px; text-align: right; min-width: 190px; }
+  .wanted { font-size: 26px; letter-spacing: 3px; color: #ffb02e; line-height: 1; }
+  .wanted-0 { color: #9fb3c8; }
+  .money { font-size: 22px; font-weight: 800; color: #7be495; margin-top: 4px; }
+  .clock-line { font-size: 13px; color: #cfe3ff; margin-top: 2px; }
+  .dispatch { top: 118px; right: 14px; width: 250px; }
+  .dispatch-title { font-size: 13px; font-weight: 800; color: #ff8a7a; letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.25); padding-bottom: 5px; margin-bottom: 6px; }
+  .dispatch-row { display: flex; gap: 8px; font-size: 13px; line-height: 1.7; }
+  .dispatch-name { font-weight: 700; width: 76px; }
+  .dispatch-dist { color: #ffd23f; width: 44px; }
+  .dispatch-tactic { color: #cfe3ff; font-weight: 700; }
+  .minimap-wrap { position: absolute; left: 14px; bottom: 14px; width: 220px; height: 220px; }
+  .minimap { width: 220px; height: 220px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.8); background: #1d2b33; box-shadow: 0 4px 18px rgba(0,0,0,0.5); }
+  .minimap-label { position: absolute; left: 0; right: 0; bottom: -2px; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: 2px; text-shadow: 0 1px 3px #000; }
+  .vitals { left: 250px; bottom: 14px; width: 240px; }
+  .vital-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+  .vital-label { font-size: 11px; font-weight: 800; width: 62px; color: #cfe3ff; }
+  .vital-track { height: 10px; border-radius: 5px; background: #2c3540; flex: 1; overflow: hidden; }
+  .vital-bar { height: 100%; border-radius: 5px; }
+  .health-bar { background: linear-gradient(90deg, #37c978, #7be495); }
+  .armour-bar { background: linear-gradient(90deg, #3a7bd5, #7ab8ff); }
+  .respect-bar { background: linear-gradient(90deg, #b967ff, #e0aaff); }
+  .rank-line { font-size: 13px; font-weight: 700; color: #ffd23f; margin-top: 6px; }
+  .dialogue { left: 50%; bottom: 132px; transform: translateX(-50%); width: 430px; text-align: center; }
+  .dialogue-name { font-size: 13px; font-weight: 800; color: #ffd23f; }
+  .dialogue-text { font-size: 15px; font-style: italic; margin-top: 3px; line-height: 1.35; }
+  .bottom-right { right: 14px; bottom: 14px; text-align: right; min-width: 230px; }
+  .speed { font-size: 34px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .vehicle { font-size: 15px; font-weight: 700; margin-top: 3px; }
+  .condition { font-size: 13px; color: #cfe3ff; }
+  .weapons { margin-top: 8px; display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+  .weapon-chip { font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); border-radius: 5px; padding: 3px 6px; }
+  .weapon-chip.active { background: #ffd23f; color: #111; border-color: #ffd23f; }
+  .radio { font-size: 13px; color: #ffd9a0; margin-top: 7px; font-weight: 700; }
+  .toast { position: absolute; top: 44%; left: 50%; transform: translateX(-50%); background: rgba(12,16,24,0.85); border: 1px solid #ffd23f; color: #ffd23f; font-size: 17px; font-weight: 700; padding: 10px 18px; border-radius: 8px; transition: opacity 0.4s; text-align: center; max-width: 640px; }
+  .menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(20,10,20,0.25) 0%, rgba(20,10,20,0.72) 100%); text-align: center; padding: 20px; }
+  .menu-title { font-size: 84px; font-weight: 900; letter-spacing: 4px; color: #ffd23f; text-shadow: 0 4px 0 #b3541e, 0 10px 30px rgba(0,0,0,0.8); line-height: 1; }
+  .menu-sub { font-size: 17px; color: #fff; margin-top: 10px; font-weight: 600; text-shadow: 0 2px 6px #000; }
+  .menu-body { margin-top: 26px; background: rgba(12,16,24,0.78); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 16px 22px; max-width: 680px; text-align: left; }
+  .menu-line { font-size: 14px; line-height: 1.9; color: #eef1f5; }
+  .menu-prompt { margin-top: 26px; font-size: 19px; font-weight: 800; color: #7be495; text-shadow: 0 2px 6px #000; animation: pulse 1.6s infinite; }
+  .menu-hint { margin-top: 12px; font-size: 12px; color: #cfe3ff; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game" aria-label="Verde Cay: an open-world crime game. Drive, walk and sail around Verde Cay, do jobs, lose the police."></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+<div id="hud"></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
