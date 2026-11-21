@@ -9,7 +9,16 @@ export function createRandom(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
   function range(min, max) { return min + next() * (max - min); }
+  function rangeInt(min, max) { return min + Math.floor(next() * (max - min + 1)); }
   function pick(list) { return list[Math.floor(next() * list.length)]; }
   function chance(p) { return next() < p; }
-  return { next, range, pick, chance };
+  function shuffle(list) {
+    const out = list.slice();
+    for (let i = out.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(next() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
+  return { next, range, rangeInt, pick, chance, shuffle };
 }

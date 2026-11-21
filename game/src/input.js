@@ -1,6 +1,6 @@
 // Keyboard and mouse input for Verde Cay. WASD moves, E enters and exits cars and
 // boats, F fires, Space brakes, Shift runs, M opens the map, P pauses, Q cycles the
-// radio, 1-3 pick a weapon, and dragging the mouse orbits the chase camera.
+// radio, H honks the horn, 1-3 pick a weapon, and dragging the mouse orbits the chase camera.
 export const ACTION_CONFIRM = 'confirm';
 export const ACTION_PAUSE = 'pause';
 export const ACTION_MAP = 'map';
@@ -9,12 +9,13 @@ export const ACTION_FIRE = 'fire';
 export const ACTION_BRAKE = 'brake';
 export const ACTION_RUN = 'run';
 export const ACTION_RADIO = 'radio';
+export const ACTION_HORN = 'horn';
 
 const KEY_ACTIONS = {
   Enter: ACTION_CONFIRM, Escape: ACTION_PAUSE, KeyP: ACTION_PAUSE,
   KeyM: ACTION_MAP, KeyE: ACTION_ENTER, KeyF: ACTION_FIRE,
   Space: ACTION_BRAKE, ShiftLeft: ACTION_RUN, ShiftRight: ACTION_RUN,
-  KeyQ: ACTION_RADIO,
+  KeyQ: ACTION_RADIO, KeyH: ACTION_HORN,
 };
 
 export function createInput(canvas) {

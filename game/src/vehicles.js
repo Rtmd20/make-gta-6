@@ -78,7 +78,7 @@ export function makeCarMesh(color, isPolice) {
     wheels.push(w);
     group.add(w);
   }
-  const lightMat = mat(0xffffff, 0.15, 0.1, 0xfff2b0, 1.6);
+  const lightMat = mat(0xffffff, 0.15, 0.1, 0xfff2b0, 2.2);
   group.add(part(0.42, 0.16, 0.08, lightMat, -0.62, 0.66, 2.26));
   group.add(part(0.42, 0.16, 0.08, lightMat, 0.62, 0.66, 2.26));
   group.add(part(0.52, 0.14, 0.08, mat(0xff2a1a, 0.3, 0.1, 0xff2a1a, 1.0), -0.62, 0.66, -2.26));
@@ -204,15 +204,16 @@ export function makeHeliMesh() {
     group.add(part(0.12, 0.9, 0.12, mat(0x333a44, 0.5, 0.4), sx, -0.85, 1.1));
     group.add(part(0.12, 0.9, 0.12, mat(0x333a44, 0.5, 0.4), sx, -0.85, -1.1));
   }
-  // Searchlight: a cone of light under the nose, plus the spot itself.
+  // Searchlight: a cone of light under the nose, plus the spot itself. The
+  // cone widens downward toward the road (apex up at the heli, wide base at
+  // the ground) and is bright enough to read as a shaft in the chase shots.
   const cone = new THREE.Mesh(
     new THREE.ConeGeometry(3.2, 22, 16, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: 0xfff6c8, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }),
   );
-  cone.rotation.x = Math.PI;
   cone.position.set(0, -12, 1.5);
   group.add(cone);
-  const spot = new THREE.SpotLight(0xfff2b0, 80, 70, 0.35, 0.5);
+  const spot = new THREE.SpotLight(0xfff2b0, 130, 70, 0.35, 0.5);
   spot.position.set(0, -1, 1);
   group.add(spot);
   group.userData.spot = spot;

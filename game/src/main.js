@@ -4,7 +4,8 @@
 //
 // ?seed=N fixes the traffic and pedestrian pattern. ?shot=cover|foot|map|menu
 // (with &seed=N) stages that scene instead of running the loop, paints it and
-// sets window.__shotReady for a screenshot.
+// sets window.__shotReady for a screenshot. The cover is the Job 4/8 boulevard
+// car chase at 4 stars; the foot shot is the Job 1/8 car theft in progress.
 import * as THREE from 'three';
 import { STEP } from './config.js';
 import { createRandom } from './random.js';
@@ -107,5 +108,8 @@ function runGame() {
   requestAnimationFrame(frame);
 }
 
-if (shot) runShot(shot);
-else runGame();
+if (shot) {
+  const known = ['cover', 'foot', 'map', 'menu'];
+  if (!known.includes(shot)) announce(`Unknown shot "${shot}" — staging the cover instead.`);
+  runShot(known.includes(shot) ? shot : 'cover');
+} else runGame();

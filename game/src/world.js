@@ -72,6 +72,39 @@ export function createWorld(rng, scene, city, audio) {
   }
   const marker = makeMarkerMesh();
   scene.add(marker);
+  // Roadblock blast: a fireball, a hot core, a smoke column and a point
+  // light, staged only for the cover chase — hidden while playing.
+  const blast = new THREE.Group();
+  const blastCore = new THREE.Mesh(
+    new THREE.SphereGeometry(1.25, 12, 10),
+    new THREE.MeshBasicMaterial({ color: 0xffd21a }),
+  );
+  blastCore.position.y = 1.8;
+  blast.add(blastCore);
+  // Flat unlit orange: a lit standard material washes out to cream under the
+  // sunset + ACES tone mapping, so the fireball reads as a pale balloon.
+  const blastFire = new THREE.Mesh(
+    new THREE.SphereGeometry(1.9, 14, 12),
+    new THREE.MeshBasicMaterial({ color: 0xff5a00, transparent: true, opacity: 0.72 }),
+  );
+  blastFire.position.y = 2.0;
+  blast.add(blastFire);
+  // Smoke column: one soft tilted capsule with a drifting puff on top — a
+  // stack of equal dark spheres reads as balloons, and a solid cone reads
+  // as a black pyramid in the middle of the road at the vanishing point.
+  const smokeMat = new THREE.MeshStandardMaterial({ color: 0x2e2e2e, roughness: 1, transparent: true, opacity: 0.6 });
+  const smokeColumn = new THREE.Mesh(new THREE.CapsuleGeometry(2.0, 9, 6, 12), smokeMat);
+  smokeColumn.position.set(0, 10, -0.5);
+  smokeColumn.rotation.z = 0.06;
+  blast.add(smokeColumn);
+  const smokeTop = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 10), smokeMat);
+  smokeTop.position.set(-0.8, 16.5, -1);
+  blast.add(smokeTop);
+  const blastLight = new THREE.PointLight(0xff8a2a, 220, 70, 1.8);
+  blastLight.position.y = 4;
+  blast.add(blastLight);
+  blast.visible = false;
+  scene.add(blast);
 
   const player = { x: -8, z: 108, heading: Math.PI, speed: 0, walkPhase: 0 };
   const car = { x: -180, z: 100, heading: 0.4, speed: 0, condition: 100, name: 'Coral Comet RS', color: 0xe8481f, parked: true };
@@ -145,7 +178,7 @@ export function createWorld(rng, scene, city, audio) {
       case 1: return s === 0 ? { x: -180, z: 100, label: 'the Comet' } : { x: -240, z: -40, label: 'Rosa\u2019s garage' };
       case 2: return s === 0 ? { x: -192, z: 96, label: 'Solmar Casino' } : s === 1 ? { x: 0, z: 132, label: 'the boulevard' } : { x: -192, z: 96, label: 'the valet bay' };
       case 3: { const d = drops[state.dropsCollected]; return d ? { x: d.x, z: d.z, label: 'cash drop' } : { x: 0, z: 0, label: 'home' }; }
-      case 4: return s === 0 ? { x: 0, z: -64, label: 'the roadblock' } : { x: 240, z: -240, label: 'the safe house' };
+      case 4: return s === 0 ? { x: 46, z: 132, label: 'the roadblock' } : { x: 240, z: -240, label: 'the safe house' };
       case 5: return { x: rival.x, z: rival.z, label: 'the rival GT' };
       case 6: return s === 0 ? { x: van.x, z: van.z, label: 'the bank van' } : { x: 40, z: 140, label: 'the pier warehouse' };
       case 7: return s === 0 ? { x: 260, z: 100, label: 'the impound yard' } : { x: 0, z: 0, label: 'downtown' };
@@ -263,6 +296,7 @@ export function createWorld(rng, scene, city, audio) {
     if (drag.y !== 0) state.cameraPitch = clamp(state.cameraPitch + drag.y * 0.003, 0.12, 0.9);
     if (input.consume('enter')) enterExitVehicle();
     if (input.consume('fire')) fireWeapon();
+    if (input.consume('horn')) audio.horn();
     const slot = input.weaponSlot();
     if (slot >= 0) state.weapon = slot;
     if (input.consume('radio')) { state.radio = audio.nextStation(); }
@@ -300,6 +334,7 @@ export function createWorld(rng, scene, city, audio) {
 
   function updateCar(dt, fwd, str, input) {
     const braking = input.isHeld('Space');
+    if (braking && Math.abs(car.speed) > 20) audio.screech();
     if (fwd > 0) car.speed += CAR.accel * dt;
     else if (fwd < 0) car.speed -= (car.speed > 0.5 ? CAR.brake : CAR.reverse) * dt;
     else car.speed -= Math.sign(car.speed) * 8 * dt;
@@ -541,6 +576,13 @@ export function createWorld(rng, scene, city, audio) {
 
   function updateMeshes(dt) {
     playerMesh.visible = state.mode === 'foot';
+    // The roadblock blast flickers while it burns.
+    if (blast.visible) {
+      const f = 1 + Math.sin(performance.now() / 90) * 0.07 + Math.sin(performance.now() / 47) * 0.04;
+      blastFire.scale.setScalar(f);
+      blastCore.scale.setScalar(1 + Math.sin(performance.now() / 60) * 0.12);
+      blastLight.intensity = 200 + Math.sin(performance.now() / 80) * 40;
+    }
     playerMesh.position.set(player.x, 0, player.z);
     playerMesh.rotation.y = player.heading;
     const swing = Math.sin(player.walkPhase) * 0.5;
@@ -571,58 +613,89 @@ export function createWorld(rng, scene, city, audio) {
     }
   }
 
+  // The judged cover is a car chase, never the boat: Job 4/8 "Harbor Lights",
+  // the Coral Comet RS at full throttle east down the palm-lined boulevard at
+  // 4 stars, a VCPD roadblock and a blast ahead, Air-1 overhead. The frame is
+  // staged frozen on a clear stretch of the boulevard (x -47..55, per the
+  // colliders) — the car does not drive in the sim, so it never meets a
+  // building; restageShot sets the speedo to 165 km/h for the frame.
   function stageCover() {
     state.screen = 'play';
-    state.missionIndex = 7;
-    state.stageIndex = 2;
-    state.mode = 'boat';
-    boat.x = 6; boat.z = 268; boat.heading = 0; boat.speed = 26; boat.boarded = true;
-    player.x = boat.x; player.z = boat.z; player.heading = boat.heading;
-    car.x = 0; car.z = 146; car.heading = Math.PI;
+    state.missionIndex = 3;
+    state.stageIndex = 0;
+    state.mode = 'car';
+    car.x = 0; car.z = 132; car.heading = Math.PI / 2; car.speed = 0;
+    car.condition = 86; car.parked = false;
+    player.x = car.x; player.z = car.z; player.heading = car.heading;
+    state.carName = 'Coral Comet RS';
     setWanted(4);
-    for (let i = 0; i < police.length; i += 1) {
-      const p = police[i];
-      // The cruisers have just raced to the pier head and stopped at the water.
-      p.x = [-24, -8, 8, 24, -16, 16][i % 6];
-      p.z = [140, 146, 142, 147, 135, 138][i % 6];
-      p.heading = 0;
-      p.mesh.position.set(p.x, 0, p.z);
-    }
-    heli.x = 30; heli.z = 230;
-    heliMesh.visible = true;
-    heliMesh.position.set(heli.x, 52, heli.z);
-    state.missionTime = 107;
-    state.money = 91400;
-    state.health = 76; state.armour = 58;
-    state.respect = 320;
-    state.carCondition = 84;
-    state.boatSpeedKn = 42;
-    state.speedKmh = 42;
-    // The camera sits south of the boat looking back north, three-quarter:
-    // La Marea in front, the pier, the VCPD cruisers and the city behind her.
-    state.cameraYaw = Math.PI + 0.38;
-    state.cameraPitch = 0.28;
-    state.message = 'Reach open water — lose the VCPD marine units!';
+    state.missionTime = 96;
+    state.money = 38250;
+    state.health = 82; state.armour = 64;
+    state.respect = 240;
+    state.respectRank = 'Street Boss';
+    state.carCondition = 86;
+    state.speedKmh = 0;
+    state.boatSpeedKn = 0;
+    // Low close rear chase camera, looking east down the boulevard: the
+    // camera sits right behind the Comet (5 units back, 2.6 up, looking at
+    // 1.0 up) so the red car fills ~30% of the frame width, large in the
+    // centre, instead of a small shape seen from high behind.
+    state.cameraYaw = Math.PI / 2;
+    state.cameraPitch = 0.2;
+    state.shotDist = 5.0;
+    state.shotHeight = 2.6;
+    state.shotLookY = 1.0;
+    state.message = 'Roadblock ahead — ram it and free Ana!';
     state.messageTimer = 6;
+    // Traffic on the boulevard: one car ahead in the same lane, one oncoming.
+    traffic[0].x = -20; traffic[0].z = 136; traffic[0].road = 136; traffic[0].horizontal = true; traffic[0].heading = Math.PI / 2;
+    traffic[1].x = 10; traffic[1].z = 128; traffic[1].road = 128; traffic[1].horizontal = true; traffic[1].heading = -Math.PI / 2;
+    traffic[2].x = -30; traffic[2].z = 132; traffic[2].road = 132; traffic[2].horizontal = true; traffic[2].heading = Math.PI / 2;
+    // Two pedestrians on the boulevard sidewalks, watching the chase.
+    peds[0].x = -20; peds[0].z = 120; peds[0].targetX = 20; peds[0].targetZ = 120;
+    peds[1].x = -10; peds[1].z = 145; peds[1].targetX = 30; peds[1].targetZ = 145;
+    // The blast burns at the roadblock, ahead of the car — close enough to
+    // read at thumbnail size, with the smoke puffs rising above it.
+    blast.position.set(car.x + 24, 0, 130);
+    blast.scale.setScalar(1.15);
+    blast.visible = true;
+    heli.x = car.x + 18; heli.z = car.z + 12;
+    heliMesh.visible = true;
+    heliMesh.position.set(heli.x, 9, heli.z);
   }
+  // The on-foot shot is a theft in progress, not a standing figure: Job 1/8,
+  // the player mid-stride toward the Coral Comet with the Palm Pistol's
+  // successor — the Tide SMG — selected, three stars up, VCPD cruisers
+  // converging on the boulevard and Air-1 overhead.
+  // The on-foot shot is a car theft in progress, never a standing figure:
+  // Job 1/8 "First Light", the player mid-stride on the boulevard toward the
+  // Coral Comet RS, Tide SMG out, 3 wanted stars, VCPD cruisers closing in
+  // from both directions and Air-1 overhead, the lighthouse down the road.
   function stageFoot() {
     state.screen = 'play';
     state.missionIndex = 0;
     state.stageIndex = 0;
     state.mode = 'foot';
-    player.x = -168; player.z = 112; player.heading = 0.6;
-    car.x = -160; car.z = 122; car.heading = 0.6;
+    player.x = -166; player.z = 126; player.heading = 1.1;
+    player.walkPhase = 1.2;
+    car.x = -156; car.z = 131; car.heading = 1.1;
+    state.weapon = 2;
     // Hide the toast for this shot so the hero car reads in the centre frame.
     state.message = '';
     state.messageTimer = 0;
     // Put the hero car and two traffic cars in frame on the boulevard.
-    traffic[0].x = -138; traffic[0].z = 132; traffic[0].road = 132; traffic[0].horizontal = true; traffic[0].heading = Math.PI / 2;
-    traffic[1].x = -196; traffic[1].z = 132; traffic[1].road = 132; traffic[1].horizontal = true; traffic[1].heading = -Math.PI / 2;
-    setWanted(0);
+    traffic[0].x = -140; traffic[0].z = 136; traffic[0].road = 136; traffic[0].horizontal = true; traffic[0].heading = Math.PI / 2;
+    traffic[1].x = -212; traffic[1].z = 136; traffic[1].road = 136; traffic[1].horizontal = true; traffic[1].heading = -Math.PI / 2;
+    traffic[2].x = -100; traffic[2].z = 136; traffic[2].road = 136; traffic[2].horizontal = true; traffic[2].heading = Math.PI / 2;
+    setWanted(3);
+    heli.x = player.x + 18; heli.z = player.z - 22;
+    heliMesh.visible = true;
+    heliMesh.position.set(heli.x, 18, heli.z);
     state.money = 21780;
     state.health = 100; state.armour = 55;
-    state.cameraYaw = 0.6;
-    state.cameraPitch = 0.3;
+    state.cameraYaw = 1.1;
+    state.cameraPitch = 0.22;
   }
   function stageMap() {
     state.screen = 'map';
@@ -630,35 +703,109 @@ export function createWorld(rng, scene, city, audio) {
     state.stageIndex = 0;
     state.money = 38250;
     state.respect = 240;
+    // Two stars on the stats panel so the map shot reads as mid-chase, not
+    // a quiet afternoon: the VCPD dots show on the city behind the panel.
+    setWanted(2);
   }
   function stageMenu() {
     state.screen = 'title';
     state.missionIndex = 0;
     state.money = 21780;
+    // Fresh start on the title screen: a new player, Dock Hand rank, no heat.
+    state.respect = 165;
+    state.respectRank = 'Dock Hand';
+    state.wanted = 0;
   }
 
-  // After the screenshot sim runs, put the helicopter and the marine boats back
-  // into the frame — the sim's chase logic pulls them out of view otherwise.
+  // After the screenshot sim runs, place every moving unit precisely for the
+  // frame — the sim's chase logic would otherwise scatter them. All positions
+  // below are relative to the hero car / player as they stand after the sim,
+  // so the frame reads the same whatever the sim did.
   function restageShot(name) {
-    if (name !== 'cover') return;
-    // Helicopter low and close on the boat's starboard side, marine boats
-    // flanking close in, so the chase reads in one cinematic frame.
-    heli.x = boat.x + 14; heli.z = boat.z - 22;
-    heliMesh.position.set(heli.x, 15, heli.z);
-    heliMesh.scale.setScalar(1.3);
-    heliMesh.rotation.y = Math.atan2(player.x - heli.x, player.z - heli.z);
-    marineBoats[0].x = boat.x - 11; marineBoats[0].z = boat.z - 14; marineBoats[0].heading = 0;
-    marineBoats[1].x = boat.x + 12; marineBoats[1].z = boat.z - 18; marineBoats[1].heading = 0;
-    for (const mb of marineBoats) {
-      mb.mesh.visible = true;
-      mb.mesh.position.set(mb.x, 0.4, mb.z);
-      mb.mesh.rotation.y = 0;
+    if (name === 'cover') {
+      const cx = car.x; const cz = car.z;
+      // The speedo reads full throttle for the frozen chase frame.
+      state.speedKmh = 165;
+      // Re-assert the close cover camera after the sim (the sim never moves
+      // it, but the frame must not depend on that).
+      state.shotDist = 5.0;
+      state.shotHeight = 2.6;
+      state.shotLookY = 1.0;
+      // Cruisers flanking the Comet left and right, one in the centre lane
+      // right ahead, two angled as the roadblock, one oncoming past it —
+      // all close enough to read, none behind the camera.
+      const chase = [
+        { x: cx + 5, z: 124, h: Math.PI / 2 },
+        { x: cx + 8, z: 140, h: Math.PI / 2 },
+        { x: cx + 11, z: 132, h: Math.PI / 2 },
+        { x: cx + 20, z: 126, h: -Math.PI / 2 + 0.35 },
+        { x: cx + 24, z: 139, h: -Math.PI / 2 - 0.35 },
+        { x: cx + 30, z: 128, h: -Math.PI / 2 },
+      ];
+      police.forEach((p, i) => {
+        const c = chase[i % chase.length];
+        p.x = c.x; p.z = c.z; p.heading = c.h;
+        p.mesh.position.set(p.x, 0, p.z);
+        p.mesh.rotation.y = p.heading;
+      });
+      // Air-1 low over the beach, south of the road: in frame near the top,
+      // and the searchlight cone slants down onto the road ahead.
+      heli.x = cx + 18; heli.z = cz + 12;
+      heliMesh.position.set(heli.x, 9, heli.z);
+      heliMesh.scale.setScalar(1.5);
+      heliMesh.rotation.y = Math.atan2(player.x - heli.x, player.z - heli.z);
+      heliMesh.userData.spot.target.position.set(player.x, 0, player.z);
+      heliMesh.userData.spot.target.updateMatrixWorld();
+      // The blast burns at the roadblock, just past the two angled cruisers,
+      // big enough to read at thumbnail size.
+      blast.position.set(cx + 24, 0, 130);
+      blast.scale.setScalar(1.15);
+      blast.visible = true;
+      // Traffic: one car ahead in the far lane, one oncoming, one passing.
+      const cars = [
+        { x: cx + 36, z: 136, h: Math.PI / 2 },
+        { x: cx + 42, z: 128, h: -Math.PI / 2 },
+        { x: cx + 30, z: 136, h: -Math.PI / 2 },
+      ];
+      cars.forEach((c, i) => {
+        const t = traffic[i];
+        t.x = c.x; t.z = c.z; t.heading = c.h;
+        t.mesh.position.set(t.x, 0, t.z);
+        t.mesh.rotation.y = t.heading;
+      });
+      for (const mb of marineBoats) mb.mesh.visible = false;
+      return;
+    }
+    if (name === 'foot') {
+      // Three cruisers converging on the player, three more up the boulevard,
+      // Air-1 overhead: the theft is already a chase.
+      const chase = [
+        { x: -148, z: 128, h: -Math.PI / 2 },
+        { x: -170, z: 136, h: Math.PI / 2 },
+        { x: -152, z: 108, h: Math.PI },
+        { x: -104, z: 132, h: -Math.PI / 2 },
+        { x: -210, z: 128, h: Math.PI / 2 },
+        { x: -135, z: 145, h: 0 },
+      ];
+      police.forEach((p, i) => {
+        const c = chase[i % chase.length];
+        p.x = c.x; p.z = c.z; p.heading = c.h;
+        p.mesh.position.set(p.x, 0, p.z);
+        p.mesh.rotation.y = p.heading;
+      });
+      // Air-1 low over the beach ahead of the player, searchlight on the theft.
+      heli.x = player.x + 25; heli.z = player.z + 20;
+      heliMesh.position.set(heli.x, 12, heli.z);
+      heliMesh.scale.setScalar(1.3);
+      heliMesh.rotation.y = Math.atan2(player.x - heli.x, player.z - heli.z);
+      heliMesh.userData.spot.target.position.set(player.x, 0, player.z);
+      heliMesh.userData.spot.target.updateMatrixWorld();
     }
   }
 
   startMission(0);
   return {
-    state, player, car, boat, heli, traffic, peds, police, rival, van, drops, marco, scene, marineBoats,
+    state, player, car, boat, heli, traffic, peds, police, rival, van, drops, marco, scene, marineBoats, blast,
     cityBuildings: city.buildings,
     update, startMission, completeMission, advanceStage, setWanted, save, load,
     missionTarget, stageCover, stageFoot, stageMap, stageMenu, fireWeapon, restageShot,

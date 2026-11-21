@@ -76,7 +76,8 @@ export function facadeTextures(base, trim, seed) {
       for (let col = 0; col < cols; col += 1) {
         const x = col * cw + cw * 0.2; const y = row * rh + rh * 0.2;
         const ww = cw * 0.6; const hh = rh * 0.6;
-        const isLit = r() < 0.42;
+        // Half the windows are warm-lit at sunset, so the towers glow.
+        const isLit = r() < 0.5;
         if (isLit) lit.push([x, y, ww, hh]);
         g.fillStyle = isLit ? '#ffd9a0' : '#20242c';
         g.fillRect(x, y, ww, hh);

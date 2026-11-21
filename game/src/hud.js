@@ -26,8 +26,9 @@ export function createHud(world, audio) {
   const missionObj = el('div', 'mission-objective');
   const missionStage = el('div', 'mission-stage');
   const missionNext = el('div', 'mission-next');
+  const missionDist = el('div', 'mission-dist');
   const missionTimer = el('div', 'mission-timer');
-  missionCard.append(missionTitle, missionObj, missionStage, missionNext, missionTimer);
+  missionCard.append(missionTitle, missionObj, missionStage, missionNext, missionDist, missionTimer);
 
   const topRight = el('div', 'hud-card top-right');
   const wanted = el('div', 'wanted');
@@ -86,7 +87,7 @@ export function createHud(world, audio) {
   const menuSub = el('div', 'menu-sub', 'An open-world crime game · 8 story jobs · Verde Cay Police');
   const menuBody = el('div', 'menu-body');
   const menuPrompt = el('div', 'menu-prompt', 'Press Enter or click to start');
-  const menuHint = el('div', 'menu-hint', 'WASD drive / walk · E enter car or boat · F fire · Space brake · Shift run · M map · P pause · Q radio · 1-3 weapons');
+  const menuHint = el('div', 'menu-hint', 'WASD drive / walk · E enter car or boat · F fire · Space brake · H horn · Shift run · M map · P pause · Q radio · 1-3 weapons');
   menu.append(menuTitle, menuSub, menuBody, menuPrompt, menuHint);
 
   root.append(missionCard, topRight, dispatch, minimapWrap, vitals, dialogue, bottomRight, toast, menu);
@@ -101,18 +102,17 @@ export function createHud(world, audio) {
     ctx.beginPath();
     ctx.arc(110, 110, 108, 0, Math.PI * 2);
     ctx.clip();
-    // Land, beach and sea, then the real street blocks.
-    ctx.fillStyle = '#2a2f2a';
-    ctx.fillRect(0, 0, W, W);
+    const toMap = (x, z) => [110 + (x / 320) * 105, 110 + (z / 320) * 105];
+    // Land, beach and sea at their true latitudes: the coast is z = 150, so
+    // the sea starts just below the middle of the map, not at its bottom.
+    ctx.fillStyle = '#2e332a';
+    ctx.fillRect(0, 0, W, 160);
     ctx.fillStyle = '#c9a86a';
-    ctx.fillRect(0, 0, W, 176);
-    ctx.fillStyle = '#e8c98a';
-    ctx.fillRect(0, 168, W, 10);
-    ctx.fillStyle = '#1e6f8e';
-    ctx.fillRect(0, 178, W, 42);
+    ctx.fillRect(0, 144, W, 16);
+    ctx.fillStyle = '#1e7d9e';
+    ctx.fillRect(0, 160, W, 60);
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
     for (let i = 0; i < 5; i += 1) ctx.fillRect(10 + i * 44, 188 + (i % 2) * 12, 26, 2);
-    const toMap = (x, z) => [110 + (x / 320) * 105, 110 + (z / 320) * 105];
     // Buildings as small blocks in their facade colours.
     if (world.cityBuildings) {
       for (const b of world.cityBuildings) {
@@ -122,24 +122,33 @@ export function createHud(world, audio) {
         ctx.fillRect(bx, by, Math.max(2, ex - bx), Math.max(2, ey - by));
       }
     }
-    // Roads.
+    // Roads: the real street grid — verticals at x = -256..256 every 64,
+    // horizontals at z = -256..128 every 64 — never a decorative grid.
     ctx.strokeStyle = '#3a4048';
     ctx.lineWidth = 5;
-    for (let i = 0; i <= 10; i += 1) {
-      const p = 12 + i * 19.6;
-      ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 220); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(220, p); ctx.stroke();
+    for (let gx = -256; gx <= 256; gx += 64) {
+      const [rx] = toMap(gx, 0);
+      ctx.beginPath(); ctx.moveTo(rx, 0); ctx.lineTo(rx, 220); ctx.stroke();
     }
+    for (let gz = -256; gz <= 128; gz += 64) {
+      const [, ry] = toMap(0, gz);
+      ctx.beginPath(); ctx.moveTo(0, ry); ctx.lineTo(220, ry); ctx.stroke();
+    }
+    // The boulevard: wider, with a yellow centre line.
+    const [, bvdY] = toMap(0, 132);
+    ctx.strokeStyle = '#4a5058';
+    ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(0, bvdY); ctx.lineTo(220, bvdY); ctx.stroke();
     ctx.strokeStyle = '#f2b705';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(0, 176); ctx.lineTo(220, 176); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, bvdY); ctx.lineTo(220, bvdY); ctx.stroke();
     // Pier.
     ctx.strokeStyle = '#9a7b52';
     ctx.lineWidth = 6;
-    ctx.beginPath(); ctx.moveTo(110, 176); ctx.lineTo(110, 214); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(110, 159); ctx.lineTo(110, 192); ctx.stroke();
     // Lighthouse dot.
     ctx.fillStyle = '#ff5a4a';
-    ctx.beginPath(); ctx.arc(114, 196, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(114, 193, 3, 0, Math.PI * 2); ctx.fill();
     // Mission target.
     const t = world.missionTarget();
     const [tx, ty] = toMap(t.x, t.z);
@@ -189,6 +198,9 @@ export function createHud(world, audio) {
     missionNext.textContent = s.stageIndex < m.stages.length - 1
       ? `Next: ${m.stages[s.stageIndex + 1]}`
       : 'Final stage — finish the job!';
+    const target = world.missionTarget();
+    const targetDist = Math.round(Math.hypot(target.x - world.player.x, target.z - world.player.z));
+    missionDist.textContent = `Target ${targetDist}m · ${target.label}`;
     const mm = Math.floor(s.missionTime / 60);
     const ss = Math.floor(s.missionTime % 60);
     missionTimer.textContent = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;

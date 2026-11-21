@@ -1,6 +1,6 @@
 // The screenshot scenes behind ?shot=cover|foot|map|menu. Each one stages a real
-// moment of the game — the boat-escape chase, an on-foot street scene, the map
-// and stats screen, and the title menu — then paints it twice and sets
+// moment of the game — the boulevard car chase, an on-foot theft in progress,
+// the map and stats screen, and the title menu — then paints it twice and sets
 // window.__shotReady so a screenshot tool knows the frame is ready.
 import { STEP } from './config.js';
 
@@ -13,7 +13,10 @@ export function stageShot(name, world, renderer) {
   else world.stageMenu();
 
   // Let the world settle for a couple of simulated seconds so traffic, the
-  // helicopter rotor and the water are mid-motion, then hold the frame.
+  // helicopter rotor and the water are mid-motion, then hold the frame. The
+  // cover chase is staged frozen on a clear stretch of the boulevard — the
+  // hero car holds its spot and restageShot sets the speedo to 165 km/h —
+  // so it never drives into a building mid-sim.
   const input = { forward: () => 0, strafe: () => 0, consumeDrag: () => ({ x: 0, y: 0 }), consume: () => false, weaponSlot: () => -1, isHeld: () => false };
   for (let i = 0; i < SIM_SECONDS / STEP; i += 1) world.update(STEP, input);
   world.restageShot(name);

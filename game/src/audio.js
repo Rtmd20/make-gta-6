@@ -8,6 +8,7 @@ const TUNES = [
   { bass: ['C', 'G', 'A', 'F'], lead: ['E', 'G', 'c', 'G', 'A', 'c', 'd', 'e'] },
   { bass: ['A', 'F', 'C', 'G'], lead: ['A', 'c', 'E', 'G', 'A', 'G', 'E', 'C'] },
   { bass: ['D', 'B', 'G', 'A'], lead: ['D', 'F', 'A', 'd', 'c', 'A', 'G', 'E'] },
+  { bass: ['G', 'C', 'D', 'G'], lead: ['G', 'B', 'd', 'B', 'G', 'E', 'D', 'B'] },
 ];
 
 export function createAudio() {
@@ -66,6 +67,20 @@ export function createAudio() {
   }
   function shot() { beep(180, 0.12, 'square', 0.25); beep(90, 0.18, 'sawtooth', 0.2); }
   function crash() { beep(70, 0.3, 'sawtooth', 0.3); }
+  function horn() { beep(370, 0.35, 'sawtooth', 0.16); beep(466, 0.35, 'sawtooth', 0.12); }
+  function screech() {
+    if (!ensure() || muted) return;
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(950, context.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(320, context.currentTime + 0.4);
+    gain.gain.setValueAtTime(0.09, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.4);
+    osc.connect(gain).connect(master);
+    osc.start();
+    osc.stop(context.currentTime + 0.4);
+  }
   function splash() { beep(300, 0.4, 'sine', 0.2); beep(180, 0.5, 'sine', 0.15); }
   function pickup() { beep(660, 0.1, 'sine', 0.2); setTimeout(() => beep(880, 0.15, 'sine', 0.2), 90); }
   function missionDone() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, 0.25, 'sine', 0.22), i * 120)); }
@@ -98,5 +113,5 @@ export function createAudio() {
   }
   function currentStation() { return RADIO[station]; }
   function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.5; return muted; }
-  return { unlock, shot, crash, splash, pickup, missionDone, setEngine, setSiren, startRadio, nextStation, currentStation, toggleMute, ensure };
+  return { unlock, shot, crash, horn, screech, splash, pickup, missionDone, setEngine, setSiren, startRadio, nextStation, currentStation, toggleMute, ensure };
 }

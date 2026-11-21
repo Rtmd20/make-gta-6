@@ -13,11 +13,11 @@ export const CITY = {
 };
 
 export const GOLDEN = {
-  skyTop: 0x2e4a7a,
-  skyHorizon: 0xff9a52,
-  sun: 0xffc46b,
-  fog: 0xf2a35e,
-  water: 0x1e6f8e,
+  skyTop: 0x5546a0,
+  skyHorizon: 0xff6a5e,
+  sun: 0xffb36b,
+  fog: 0xf08a6a,
+  water: 0x2a8aa8,
   sand: 0xe8c98a,
   asphalt: 0x2c2f36,
 };
@@ -135,6 +135,7 @@ export const RADIO = [
   { name: 'Cay FM 98.1', style: 'Sunset pop' },
   { name: 'Tide 101.5', style: 'Coastal funk' },
   { name: 'Neon 104.9', style: 'Night drive synth' },
+  { name: 'Breakwater 106.3', style: 'Island reggae' },
 ];
 
 export const GARAGE_CARS = [

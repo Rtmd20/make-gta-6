@@ -81,13 +81,13 @@ const FACADE_VARIANTS = [
 ];
 
 function makeBuilding(rng, x, z, w, d, facades) {
-  const h = rng.range(12, 46);
+  const h = rng.rangeInt(12, 46);
   const group = new THREE.Group();
   const variant = rng.pick(facades);
   const roofMat = std({ color: 0x4a3f35, roughness: 1 });
   const sideMat = new THREE.MeshStandardMaterial({
     map: variant.map, emissiveMap: variant.emissiveMap, emissive: 0xffb060,
-    emissiveIntensity: 0.55, roughness: 0.85, metalness: 0.05,
+    emissiveIntensity: 0.75, roughness: 0.85, metalness: 0.05,
   });
   const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [sideMat, sideMat, roofMat, roofMat, sideMat, sideMat]);
   body.position.y = h / 2;
@@ -126,15 +126,17 @@ export function buildCity(scene, rng) {
   const wood = woodTexture();
 
   // Sky: gradient dome with a glowing sun disc and drifting clouds in the
-  // shader, so the sunset reads even where no geometry is.
+  // shader, so the sunset reads even where no geometry is. The sun sits low
+  // in the east, straight ahead of the boulevard chase, so the cover shot
+  // drives into the sunset: pink-orange at the horizon, purple above.
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: {
-      top: { value: new THREE.Color(0x1e3a6e) },
-      mid: { value: new THREE.Color(0xff8f4d) },
-      bot: { value: new THREE.Color(0x5a2f3a) },
-      sunDir: { value: new THREE.Vector3(-0.45, 0.22, 0.86).normalize() },
-      sunColor: { value: new THREE.Color(0xfff0b8) },
+      top: { value: new THREE.Color(0x5546a0) },
+      mid: { value: new THREE.Color(0xff6a5e) },
+      bot: { value: new THREE.Color(0x6e2f4a) },
+      sunDir: { value: new THREE.Vector3(0.82, 0.16, 0.35).normalize() },
+      sunColor: { value: new THREE.Color(0xffd9a0) },
     },
     vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `
@@ -161,13 +163,17 @@ export function buildCity(scene, rng) {
   const skyDome = new THREE.Mesh(new THREE.SphereGeometry(850, 32, 20), skyMat);
   scene.add(skyDome);
   scene.fog = new THREE.Fog(GOLDEN.fog, 200, 850);
-  const hemi = new THREE.HemisphereLight(0xffd9a8, 0x2a3a55, 1.15);
+  const hemi = new THREE.HemisphereLight(0xffc4a0, 0x2a3a55, 1.45);
   scene.add(hemi);
-  const fill = new THREE.DirectionalLight(0x7a9cc8, 0.5);
-  fill.position.set(200, 120, -200);
+  // Fill light from the west so the facades the chase camera faces — the
+  // west sides, away from the low eastern sun — still read in colour.
+  const fill = new THREE.DirectionalLight(0x7a9cc8, 0.85);
+  fill.position.set(-220, 140, 60);
   scene.add(fill);
-  const sun = new THREE.DirectionalLight(GOLDEN.sun, 3.0);
-  sun.position.set(-180, 85, 260);
+  // The sun hangs low in the east, ahead of the boulevard chase, so the long
+  // shadows fall back toward the camera and the facades catch the warm light.
+  const sun = new THREE.DirectionalLight(GOLDEN.sun, 3.4);
+  sun.position.set(260, 90, 180);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.left = -260; sun.shadow.camera.right = 260;
@@ -199,12 +205,13 @@ export function buildCity(scene, rng) {
   scene.add(wetSand);
 
   // Sea: segmented plane with a scrolling normal map and warm sunset sparkle.
+  // Brighter and warmer than the last build — the old flat teal read as mud.
   const waterGeo = new THREE.PlaneGeometry(900, 340, 48, 18);
   const waterNormal = waterNormalTexture();
   const waterMat = new THREE.MeshStandardMaterial({
-    color: 0x1e7d9e, roughness: 0.12, metalness: 0.7,
+    color: 0x2a8aa8, roughness: 0.12, metalness: 0.7,
     normalMap: waterNormal, normalScale: new THREE.Vector2(1.1, 1.1),
-    transparent: true, opacity: 0.97, emissive: 0x123a4a, emissiveIntensity: 0.35,
+    transparent: true, opacity: 0.97, emissive: 0x2a3a4a, emissiveIntensity: 0.5,
   });
   const water = new THREE.Mesh(waterGeo, waterMat);
   water.rotation.x = -Math.PI / 2;
