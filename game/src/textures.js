@@ -1,234 +1,201 @@
-// Procedural textures for Verde Cay — every texture is drawn on a canvas in
-// code, so the game stays self-contained with no network requests and no
-// borrowed art. Asphalt, facades, sand, wood, water, palm and neon signs.
+// Verde Cay — procedural canvas textures. Every texture in the game is drawn
+// here at load time from plain 2D canvas calls; no image files are shipped.
 import * as THREE from 'three';
 
-function canvasTex(w, h, draw, repeatX = 1, repeatY = 1) {
+function makeCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  draw(c.getContext('2d'), w, h);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(repeatX, repeatY);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
+  return [c, c.getContext('2d')];
 }
 
-// A seeded pseudo-random so textures are stable across runs.
-function mulberry(seed) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+function toTexture(canvas, repeatX = 1, repeatY = 1) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeatX, repeatY);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+function speckle(ctx, w, h, n, colours, size = 2) {
+  for (let i = 0; i < n; i++) {
+    ctx.fillStyle = colours[(Math.random() * colours.length) | 0];
+    ctx.globalAlpha = 0.12 + Math.random() * 0.25;
+    ctx.fillRect(Math.random() * w, Math.random() * h, size, size);
+  }
+  ctx.globalAlpha = 1;
 }
 
 export function asphaltTexture() {
-  return canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#26292f'; g.fillRect(0, 0, w, h);
-    const r = mulberry(7);
-    for (let i = 0; i < 2600; i += 1) {
-      const v = 28 + r() * 30;
-      g.fillStyle = `rgba(${v},${v + 2},${v + 6},${0.25 + r() * 0.3})`;
-      g.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2);
-    }
-    // Wear patches and faint tyre lines.
-    for (let i = 0; i < 14; i += 1) {
-      g.fillStyle = 'rgba(0,0,0,0.16)';
-      g.beginPath(); g.ellipse(r() * w, r() * h, 18 + r() * 30, 8 + r() * 14, r() * 3, 0, Math.PI * 2); g.fill();
-    }
-    g.fillStyle = 'rgba(255,255,255,0.05)';
-    g.fillRect(0, 60, w, 10); g.fillRect(0, 190, w, 10);
-  }, 8, 8);
-}
-
-export function asphaltNormalTexture() {
-  return canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#8080ff'; g.fillRect(0, 0, w, h);
-    const r = mulberry(21);
-    for (let i = 0; i < 1800; i += 1) {
-      const v = 110 + Math.floor(r() * 40);
-      g.fillStyle = `rgb(${v},${v},255)`;
-      g.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 3);
-    }
-  }, 8, 8);
-}
-
-// One facade variant: base colour, window grid (some warm-lit), ground-floor
-// shops with awnings, and a darker top floor. Returns { map, emissiveMap }.
-export function facadeTextures(base, trim, seed) {
-  const lit = [];
-  const r = mulberry(seed);
-  const map = canvasTex(256, 512, (g, w, h) => {
-    g.fillStyle = base; g.fillRect(0, 0, w, h);
-    // Subtle vertical grime and panel seams.
-    for (let i = 0; i < 40; i += 1) {
-      g.fillStyle = 'rgba(0,0,0,0.05)';
-      g.fillRect(r() * w, 0, 2 + r() * 6, h);
-    }
-    const cols = 5; const rows = 9;
-    const cw = w / cols; const rh = h / rows;
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const x = col * cw + cw * 0.2; const y = row * rh + rh * 0.2;
-        const ww = cw * 0.6; const hh = rh * 0.6;
-        // Half the windows are warm-lit at sunset, so the towers glow.
-        const isLit = r() < 0.5;
-        if (isLit) lit.push([x, y, ww, hh]);
-        g.fillStyle = isLit ? '#ffd9a0' : '#20242c';
-        g.fillRect(x, y, ww, hh);
-        g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2;
-        g.strokeRect(x, y, ww, hh);
-        g.strokeStyle = 'rgba(0,0,0,0.25)';
-        g.beginPath(); g.moveTo(x + ww / 2, y); g.lineTo(x + ww / 2, y + hh); g.stroke();
-        // Balcony rail on some floors.
-        if (row > 0 && r() < 0.35) {
-          g.fillStyle = 'rgba(0,0,0,0.3)';
-          g.fillRect(x - 2, y + hh + 2, ww + 4, 4);
-        }
-      }
-    }
-    // Ground floor: shopfronts with striped awnings.
-    g.fillStyle = trim; g.fillRect(0, h - 64, w, 64);
-    for (let col = 0; col < cols; col += 1) {
-      const x = col * cw;
-      g.fillStyle = col % 2 ? '#f2e6b8' : '#e8481f';
-      g.fillRect(x, h - 64, cw, 14);
-      g.fillStyle = '#1c2733';
-      g.fillRect(x + 6, h - 46, cw - 12, 30);
-      g.fillStyle = 'rgba(255,210,120,0.85)';
-      g.fillRect(x + 10, h - 42, cw - 20, 22);
-    }
-  });
-  const emissiveMap = canvasTex(256, 512, (g, w, h) => {
-    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-    for (const [x, y, ww, hh] of lit) {
-      g.fillStyle = '#ffbe6b';
-      g.fillRect(x, y, ww, hh);
-    }
-    g.fillStyle = '#3a2a10';
-    g.fillRect(0, h - 64, w, 64);
-  });
-  return { map, emissiveMap };
+  const [c, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = '#3a3a40'; ctx.fillRect(0, 0, 256, 256);
+  speckle(ctx, 256, 256, 2600, ['#4a4a52', '#2e2e34', '#55555e', '#63636c'], 2);
+  // Faded centre line dashes.
+  ctx.fillStyle = 'rgba(240,200,90,0.75)';
+  for (let y = 0; y < 256; y += 64) ctx.fillRect(124, y + 8, 8, 34);
+  // Worn tyre tracks.
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(52, 0, 26, 256); ctx.fillRect(178, 0, 26, 256);
+  return toTexture(c, 6, 6);
 }
 
 export function sandTexture() {
-  return canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#e0bd7e'; g.fillRect(0, 0, w, h);
-    const r = mulberry(33);
-    for (let i = 0; i < 3200; i += 1) {
-      const v = 200 + Math.floor(r() * 55);
-      g.fillStyle = `rgba(${v},${Math.floor(v * 0.82)},${Math.floor(v * 0.55)},0.5)`;
-      g.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2);
-    }
-    // Short faint ripples (long strokes read as wooden planks at game scale).
-    g.strokeStyle = 'rgba(120,90,40,0.10)'; g.lineWidth = 2;
-    for (let y = 10; y < h; y += 26) {
-      for (let x = 0; x < w; x += 42) {
-        g.beginPath();
-        g.moveTo(x, y);
-        g.quadraticCurveTo(x + 14, y + 3, x + 30, y);
-        g.stroke();
+  const [c, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = '#d9b380'; ctx.fillRect(0, 0, 256, 256);
+  speckle(ctx, 256, 256, 3200, ['#e8c99a', '#c49a62', '#f0d6a8', '#b98d55'], 2);
+  return toTexture(c, 10, 10);
+}
+
+export function grassTexture() {
+  const [c, ctx] = makeCanvas(128, 128);
+  ctx.fillStyle = '#4a6b35'; ctx.fillRect(0, 0, 128, 128);
+  speckle(ctx, 128, 128, 1400, ['#5d8143', '#3c5a2c', '#6d9450'], 2);
+  return toTexture(c, 12, 12);
+}
+
+const FACADE_BASE = ['#c96f4a', '#7d8aa0', '#b8a06a', '#8a6f8e', '#5f7d6a'];
+const FACADE_TRIM = ['#f2e3c9', '#2f3a4a', '#fff1d6', '#e8d8c0', '#dfe8e0'];
+
+// Five facade variants: warm stucco blocks with rows of lit windows, a shop
+// awning at street level and a parapet line at the top.
+export function facadeTextures() {
+  const out = [];
+  for (let v = 0; v < 5; v++) {
+    const [c, ctx] = makeCanvas(256, 512);
+    ctx.fillStyle = FACADE_BASE[v]; ctx.fillRect(0, 0, 256, 512);
+    speckle(ctx, 256, 512, 900, ['#00000022', '#ffffff18'], 3);
+    // Parapet and trim bands.
+    ctx.fillStyle = FACADE_TRIM[v]; ctx.fillRect(0, 0, 256, 14);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(0, 14, 256, 6);
+    // Window grid: 4 across, 7 up, some lit gold, some dark, some shuttered.
+    for (let row = 0; row < 7; row++) {
+      for (let col = 0; col < 4; col++) {
+        const x = 18 + col * 58, y = 44 + row * 58;
+        const lit = Math.random();
+        ctx.fillStyle = '#20242c'; ctx.fillRect(x - 3, y - 3, 44, 54);
+        if (lit < 0.55) {
+          const warm = ['#ffd27a', '#ffb84d', '#ffe9a8'][(Math.random() * 3) | 0];
+          ctx.fillStyle = warm; ctx.fillRect(x, y, 38, 48);
+          ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 17, y, 3, 48);
+        } else if (lit < 0.8) {
+          ctx.fillStyle = '#3d4a5c'; ctx.fillRect(x, y, 38, 48);
+          ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(x, y, 38, 14);
+        } else {
+          ctx.fillStyle = '#6b5a48'; ctx.fillRect(x, y, 38, 48);
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          for (let s = 0; s < 4; s++) ctx.fillRect(x, y + 8 + s * 11, 38, 3);
+        }
       }
     }
-  }, 12, 12);
+    // Street-level shopfront with awning.
+    ctx.fillStyle = '#1c1a20'; ctx.fillRect(10, 452, 236, 60);
+    ctx.fillStyle = ['#ff5d8f', '#38bdf8', '#facc15', '#4ade80', '#fb923c'][v];
+    ctx.fillRect(10, 436, 236, 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center';
+    ctx.fillText(['CAFÉ SOL', 'TIDES BAR', 'PALM MART', 'SURF SHOP', 'NEON GRILL'][v], 128, 490);
+    out.push(toTexture(c));
+  }
+  return out;
 }
 
 export function woodTexture() {
-  return canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#8a6b45'; g.fillRect(0, 0, w, h);
-    const r = mulberry(55);
-    for (let y = 0; y < h; y += 32) {
-      g.fillStyle = `rgba(0,0,0,${0.08 + r() * 0.12})`;
-      g.fillRect(0, y, w, 3);
-      for (let i = 0; i < 24; i += 1) {
-        g.strokeStyle = 'rgba(60,40,18,0.35)'; g.lineWidth = 1;
-        g.beginPath();
-        const yy = y + 4 + r() * 24;
-        g.moveTo(0, yy); g.bezierCurveTo(w * 0.3, yy + r() * 4 - 2, w * 0.7, yy + r() * 4 - 2, w, yy);
-        g.stroke();
-      }
-    }
-  }, 2, 6);
+  const [c, ctx] = makeCanvas(256, 128);
+  ctx.fillStyle = '#7a5230'; ctx.fillRect(0, 0, 256, 128);
+  for (let p = 0; p < 5; p++) {
+    ctx.fillStyle = p % 2 ? '#835a36' : '#6f4a2a';
+    ctx.fillRect(0, p * 26, 256, 24);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    for (let i = 0; i < 30; i++) ctx.fillRect(Math.random() * 256, p * 26 + 4 + Math.random() * 16, 8 + Math.random() * 20, 1);
+  }
+  return toTexture(c, 4, 1);
 }
 
 export function waterNormalTexture() {
-  return canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#8080ff'; g.fillRect(0, 0, w, h);
-    const r = mulberry(77);
-    for (let i = 0; i < 90; i += 1) {
-      const x = r() * w; const y = r() * h; const rad = 8 + r() * 26;
-      const grad = g.createRadialGradient(x, y, 1, x, y, rad);
-      grad.addColorStop(0, 'rgba(160,160,255,0.8)');
-      grad.addColorStop(1, 'rgba(128,128,255,0)');
-      g.fillStyle = grad;
-      g.beginPath(); g.arc(x, y, rad, 0, Math.PI * 2); g.fill();
-    }
-  }, 10, 10);
-}
-
-export function palmFrondTexture() {
-  return canvasTex(128, 256, (g, w, h) => {
-    g.clearRect(0, 0, w, h);
-    // One solid palm leaf: a long tapered blade with a darker centre rib and
-    // serrated edges, filled green so it reads from any angle.
-    g.fillStyle = '#3f9e52';
-    g.beginPath();
-    g.moveTo(w / 2, 0);
-    g.quadraticCurveTo(w * 0.92, h * 0.35, w * 0.62, h);
-    g.quadraticCurveTo(w * 0.5, h * 0.7, w * 0.38, h);
-    g.quadraticCurveTo(w * 0.08, h * 0.35, w / 2, 0);
-    g.fill();
-    // Serrations: darker notches along both edges.
-    g.fillStyle = '#2f7a3e';
-    for (let y = 30; y < h - 10; y += 22) {
-      const spread = 14 + (y / h) * 26;
-      g.beginPath(); g.moveTo(w / 2 - spread, y); g.lineTo(w / 2 - spread - 10, y + 12); g.lineTo(w / 2 - spread + 2, y + 16); g.closePath(); g.fill();
-      g.beginPath(); g.moveTo(w / 2 + spread, y); g.lineTo(w / 2 + spread + 10, y + 12); g.lineTo(w / 2 + spread - 2, y + 16); g.closePath(); g.fill();
-    }
-    g.strokeStyle = '#2f7a3e'; g.lineWidth = 6;
-    g.beginPath(); g.moveTo(w / 2, 4); g.lineTo(w / 2, h - 6); g.stroke();
-  });
+  // A soft blue-green noise field used as the sea's normal-ish detail map.
+  const [c, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = '#1d6f8f'; ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 90; i++) {
+    ctx.strokeStyle = `rgba(255,255,255,${0.05 + Math.random() * 0.12})`;
+    ctx.lineWidth = 1 + Math.random() * 2;
+    ctx.beginPath();
+    const y = Math.random() * 256;
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(80, y - 12 + Math.random() * 24, 170, y - 12 + Math.random() * 24, 256, y);
+    ctx.stroke();
+  }
+  speckle(ctx, 256, 256, 500, ['#2a8fb5', '#155e7d'], 2);
+  return toTexture(c, 8, 8);
 }
 
 export function palmBarkTexture() {
-  return canvasTex(128, 256, (g, w, h) => {
-    g.fillStyle = '#7a5a38'; g.fillRect(0, 0, w, h);
-    const r = mulberry(91);
-    for (let y = 0; y < h; y += 18) {
-      g.fillStyle = 'rgba(0,0,0,0.28)';
-      g.fillRect(0, y, w, 5);
-      g.fillStyle = 'rgba(255,220,170,0.14)';
-      g.fillRect(0, y + 5, w, 3);
-      for (let i = 0; i < 6; i += 1) {
-        g.fillStyle = 'rgba(0,0,0,0.18)';
-        g.fillRect(r() * w, y + r() * 16, 3 + r() * 8, 2);
-      }
-    }
-  }, 1, 2);
+  const [c, ctx] = makeCanvas(128, 256);
+  ctx.fillStyle = '#6b4a2f'; ctx.fillRect(0, 0, 128, 256);
+  for (let y = 0; y < 256; y += 14) {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(0, y, 128, 4);
+    ctx.fillStyle = 'rgba(255,220,170,0.12)'; ctx.fillRect(0, y + 4, 128, 3);
+  }
+  return toTexture(c, 1, 2);
 }
 
-// Neon sign: glowing text on a dark board, used as an emissive map + map.
-export function neonSignTexture(text, fg, bg) {
-  const map = canvasTex(512, 128, (g, w, h) => {
-    g.fillStyle = bg; g.fillRect(0, 0, w, h);
-    g.strokeStyle = fg; g.lineWidth = 4; g.strokeRect(6, 6, w - 12, h - 12);
-    g.fillStyle = fg;
-    g.font = 'bold 64px system-ui, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.shadowColor = fg; g.shadowBlur = 22;
-    g.fillText(text, w / 2, h / 2 + 2);
-  });
-  const emissiveMap = canvasTex(512, 128, (g, w, h) => {
-    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#fff';
-    g.font = 'bold 64px system-ui, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(text, w / 2, h / 2 + 2);
-  });
-  return { map, emissiveMap };
+export function palmLeafTexture() {
+  const [c, ctx] = makeCanvas(256, 128);
+  ctx.clearRect(0, 0, 256, 128);
+  ctx.strokeStyle = '#2f7d3a'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  for (let i = 0; i < 9; i++) {
+    const x0 = 128, y0 = 120, ang = Math.PI * (0.15 + (i / 8) * 0.7);
+    const x1 = x0 + Math.cos(Math.PI + ang) * 110, y1 = y0 - Math.sin(ang) * 95;
+    ctx.beginPath(); ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo((x0 + x1) / 2, y1 - 30, x1, y1 + 18);
+    ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+export function neonSignTexture(text, colour) {
+  const [c, ctx] = makeCanvas(512, 128);
+  ctx.fillStyle = '#14081c'; ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = colour; ctx.lineWidth = 4; ctx.strokeRect(8, 8, 496, 112);
+  ctx.font = '900 64px "Arial Black", Arial, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = colour; ctx.shadowBlur = 26;
+  ctx.fillStyle = colour;
+  ctx.fillText(text, 256, 68);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, 256, 68);
+  return toTexture(c);
+}
+
+export function badgeTexture() {
+  // VCPD door badge: gold star on navy, drawn once and reused on cruisers.
+  const [c, ctx] = makeCanvas(128, 128);
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.fillStyle = '#0f2a52'; ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffd23e'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(64, 64, 52, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#ffd23e';
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
+    const a2 = a + Math.PI / 5;
+    ctx.lineTo(64 + Math.cos(a) * 34, 64 + Math.sin(a) * 34);
+    ctx.lineTo(64 + Math.cos(a2) * 15, 64 + Math.sin(a2) * 15);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#0f2a52'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
+  ctx.fillText('VCPD', 64, 104);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+export function crosswalkTexture() {
+  const [c, ctx] = makeCanvas(256, 256);
+  ctx.fillStyle = '#2b2b30'; ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = 'rgba(240,240,235,0.85)';
+  for (let i = 0; i < 8; i++) ctx.fillRect(10 + i * 31, 20, 18, 216);
+  return toTexture(c);
 }

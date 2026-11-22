@@ -1,327 +1,207 @@
-// The HUD for Verde Cay: pure DOM over the WebGL canvas, so the text stays crisp
-// at any window size. Mission card, wanted stars, the named VCPD dispatch panel,
-// a circular minimap, health / armour / respect, NPC dialogue, weapon slots,
-// speed and car, the radio — plus the title, pause, map, game-over and win menus.
-import { MISSIONS, CREW, WEAPONS, RADIO, GARAGE_CARS } from './config.js';
+// Verde Cay — the HUD: mission card, wanted stars, VCPD dispatch panel,
+// health/armour/respect bars, minimap and the full-screen city map.
+import { WORLD, STREETS, JOBS, CREW } from './config.js';
 
-function el(tag, cls, text) {
-  const node = document.createElement(tag);
-  if (cls) node.className = cls;
-  if (text !== undefined) node.textContent = text;
-  return node;
+const $ = (id) => document.getElementById(id);
+const WEAPON_NAMES = { 1: 'FIST', 2: 'PISTOL', 3: 'SMG' };
+
+function fmtClock(mins) {
+  const h = Math.floor(mins / 60) % 24;
+  const m = Math.floor(mins % 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} · SAT`;
 }
-function fmtClock(hours) {
-  const h = Math.floor(hours) % 24;
-  const m = Math.floor((hours - Math.floor(hours)) * 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
+function fmtTimer(secs) {
+  const s = Math.max(0, Math.ceil(secs));
+  return `⏱ ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
-function fmtMoney(n) { return `$${Math.round(n).toLocaleString()}`; }
 
-export function createHud(world, audio) {
-  const root = document.getElementById('hud');
-  const state = world.state;
-
-  const missionCard = el('div', 'hud-card mission-card');
-  const missionTitle = el('div', 'mission-title');
-  const missionObj = el('div', 'mission-objective');
-  const missionStage = el('div', 'mission-stage');
-  const missionNext = el('div', 'mission-next');
-  const missionDist = el('div', 'mission-dist');
-  const missionTimer = el('div', 'mission-timer');
-  missionCard.append(missionTitle, missionObj, missionStage, missionNext, missionDist, missionTimer);
-
-  const topRight = el('div', 'hud-card top-right');
-  const wanted = el('div', 'wanted');
-  const money = el('div', 'money');
-  const clockLine = el('div', 'clock-line');
-  topRight.append(wanted, money, clockLine);
-
-  const dispatch = el('div', 'hud-card dispatch');
-  const dispatchTitle = el('div', 'dispatch-title', 'VCPD RESPONSE');
-  const dispatchList = el('div', 'dispatch-list');
-  dispatch.append(dispatchTitle, dispatchList);
-
-  const minimapWrap = el('div', 'minimap-wrap');
-  const minimap = document.createElement('canvas');
-  minimap.width = 220; minimap.height = 220;
-  minimap.className = 'minimap';
-  minimapWrap.appendChild(minimap);
-  const minimapLabel = el('div', 'minimap-label', 'VERDE CAY');
-  minimapWrap.appendChild(minimapLabel);
-
-  const vitals = el('div', 'hud-card vitals');
-  function vitalRow(label, barClass) {
-    const row = el('div', 'vital-row');
-    const track = el('div', 'vital-track');
-    const bar = el('div', `vital-bar ${barClass}`);
-    track.appendChild(bar);
-    row.append(el('span', 'vital-label', label), track);
-    return { row, bar };
+export function updateHUD(world, radioName) {
+  const s = world.state;
+  const job = s.storyDone ? null : world.currentJob();
+  const stage = s.storyDone ? null : world.currentStage();
+  $('hud-job').textContent = s.storyDone
+    ? 'STORY COMPLETE'
+    : `JOB ${s.jobIndex + 1} / 8 · ${job.giver}`;
+  $('hud-jobname').textContent = s.storyDone ? 'FREE ROAM' : job.name;
+  $('hud-stage').textContent = s.storyDone
+    ? 'All eight jobs done — Verde Cay is yours.'
+    : `Stage ${s.stageIndex + 1} of ${job.stages.length}`;
+  $('hud-next').textContent = s.storyDone ? 'Explore, earn respect, stay out of jail.' : stage.text;
+  $('hud-timer').textContent = s.storyDone ? '—' : fmtTimer(s.jobTimer);
+  $('hud-stars').innerHTML = Array.from({ length: 5 }, (_, i) =>
+    i < s.wanted ? '★' : '<span class="off">☆</span>').join('');
+  $('hud-money').textContent = `$${s.money.toLocaleString()}`;
+  $('hud-clock').textContent = fmtClock(s.clockMin);
+  $('health-fill').style.width = `${s.health}%`;
+  $('armour-fill').style.width = `${s.armour}%`;
+  $('respect-fill').style.width = `${s.respect}%`;
+  $('dialogue').textContent = job ? job.line : 'CREW: “The city is ours now.”';
+  const units = world.dispatchUnits();
+  $('dispatch-units').innerHTML = units.map((u) =>
+    `<div class="unit"><span>${u.name}</span><span>${u.dist ? u.dist + 'm' : ''}</span><span class="tac">${u.tac}</span></div>`).join('');
+  const kmh = world.speedKmh();
+  if (world.player.boat) {
+    $('hud-speed').textContent = Math.round(world.speedKnots());
+    $('hud-speedunit').textContent = 'kn';
+  } else {
+    $('hud-speed').textContent = Math.round(kmh);
+    $('hud-speedunit').textContent = 'km/h';
   }
-  const healthVital = vitalRow('HEALTH', 'health-bar');
-  const armourVital = vitalRow('ARMOUR', 'armour-bar');
-  const respectVital = vitalRow('RESPECT', 'respect-bar');
-  const rankLine = el('div', 'rank-line');
-  vitals.append(healthVital.row, armourVital.row, respectVital.row, rankLine);
-  const healthBar = healthVital.bar;
-  const armourBar = armourVital.bar;
-  const respectBar = respectVital.bar;
-
-  const dialogue = el('div', 'hud-card dialogue');
-  const dialogueName = el('div', 'dialogue-name');
-  const dialogueText = el('div', 'dialogue-text');
-  dialogue.append(dialogueName, dialogueText);
-
-  const bottomRight = el('div', 'hud-card bottom-right');
-  const speed = el('div', 'speed');
-  const vehicle = el('div', 'vehicle');
-  const condition = el('div', 'condition');
-  const weapons = el('div', 'weapons');
-  const radio = el('div', 'radio');
-  bottomRight.append(speed, vehicle, condition, weapons, radio);
-
-  const toast = el('div', 'toast');
-
-  const menu = el('div', 'menu');
-  const menuTitle = el('div', 'menu-title', 'VERDE CAY');
-  const menuSub = el('div', 'menu-sub', 'An open-world crime game · 8 story jobs · Verde Cay Police');
-  const menuBody = el('div', 'menu-body');
-  const menuPrompt = el('div', 'menu-prompt', 'Press Enter or click to start');
-  const menuHint = el('div', 'menu-hint', 'WASD drive / walk · E enter car or boat · F fire · Space brake · H horn · Shift run · M map · P pause · Q radio · 1-3 weapons');
-  menu.append(menuTitle, menuSub, menuBody, menuPrompt, menuHint);
-
-  root.append(missionCard, topRight, dispatch, minimapWrap, vitals, dialogue, bottomRight, toast, menu);
-
-  const mapCtx = minimap.getContext('2d');
-  function drawMinimap() {
-    const s = world.state;
-    const ctx = mapCtx;
-    const W = 220;
-    ctx.clearRect(0, 0, W, W);
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(110, 110, 108, 0, Math.PI * 2);
-    ctx.clip();
-    const toMap = (x, z) => [110 + (x / 320) * 105, 110 + (z / 320) * 105];
-    // Land, beach and sea at their true latitudes: the coast is z = 150, so
-    // the sea starts just below the middle of the map, not at its bottom.
-    ctx.fillStyle = '#2e332a';
-    ctx.fillRect(0, 0, W, 160);
-    ctx.fillStyle = '#c9a86a';
-    ctx.fillRect(0, 144, W, 16);
-    ctx.fillStyle = '#1e7d9e';
-    ctx.fillRect(0, 160, W, 60);
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    for (let i = 0; i < 5; i += 1) ctx.fillRect(10 + i * 44, 188 + (i % 2) * 12, 26, 2);
-    // Buildings as small blocks in their facade colours.
-    if (world.cityBuildings) {
-      for (const b of world.cityBuildings) {
-        const [bx, by] = toMap(b.x - b.w / 2, b.z - b.d / 2);
-        const [ex, ey] = toMap(b.x + b.w / 2, b.z + b.d / 2);
-        ctx.fillStyle = b.height > 28 ? '#d9b8e8' : b.height > 18 ? '#f2c98a' : '#a8c8e8';
-        ctx.fillRect(bx, by, Math.max(2, ex - bx), Math.max(2, ey - by));
-      }
-    }
-    // Roads: the real street grid — verticals at x = -256..256 every 64,
-    // horizontals at z = -256..128 every 64 — never a decorative grid.
-    ctx.strokeStyle = '#3a4048';
-    ctx.lineWidth = 5;
-    for (let gx = -256; gx <= 256; gx += 64) {
-      const [rx] = toMap(gx, 0);
-      ctx.beginPath(); ctx.moveTo(rx, 0); ctx.lineTo(rx, 220); ctx.stroke();
-    }
-    for (let gz = -256; gz <= 128; gz += 64) {
-      const [, ry] = toMap(0, gz);
-      ctx.beginPath(); ctx.moveTo(0, ry); ctx.lineTo(220, ry); ctx.stroke();
-    }
-    // The boulevard: wider, with a yellow centre line.
-    const [, bvdY] = toMap(0, 132);
-    ctx.strokeStyle = '#4a5058';
-    ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.moveTo(0, bvdY); ctx.lineTo(220, bvdY); ctx.stroke();
-    ctx.strokeStyle = '#f2b705';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, bvdY); ctx.lineTo(220, bvdY); ctx.stroke();
-    // Pier.
-    ctx.strokeStyle = '#9a7b52';
-    ctx.lineWidth = 6;
-    ctx.beginPath(); ctx.moveTo(110, 159); ctx.lineTo(110, 192); ctx.stroke();
-    // Lighthouse dot.
-    ctx.fillStyle = '#ff5a4a';
-    ctx.beginPath(); ctx.arc(114, 193, 3, 0, Math.PI * 2); ctx.fill();
-    // Mission target.
-    const t = world.missionTarget();
-    const [tx, ty] = toMap(t.x, t.z);
-    ctx.fillStyle = '#ffd23f';
-    ctx.beginPath(); ctx.arc(tx, ty, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(tx, ty, 10, 0, Math.PI * 2); ctx.stroke();
-    // Police dots.
-    ctx.fillStyle = '#3a7bd5';
-    for (const p of world.police) {
-      const [px, py] = toMap(p.x, p.z);
-      ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
-    }
-    // Player arrow.
-    const [px, py] = toMap(world.player.x, world.player.z);
-    ctx.fillStyle = '#e8481f';
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(world.player.heading);
-    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 7); ctx.lineTo(-6, 7); ctx.closePath(); ctx.fill();
-    ctx.restore();
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(110, 110, 108, 0, Math.PI * 2); ctx.stroke();
+  $('hud-carname').textContent = world.vehicleName().toUpperCase();
+  $('hud-cond').textContent = world.player.vehicle
+    ? `Condition ${Math.round(world.player.condition)}%`
+    : 'On foot — press E near a car to drive';
+  document.querySelectorAll('#weapons .slot').forEach((el) => {
+    const w = Number(el.dataset.w);
+    el.classList.toggle('active', w === s.weapon);
+    el.textContent = `${w} · ${WEAPON_NAMES[w]}`;
+  });
+  $('radio-line').textContent = `♪ RADIO · ${radioName}`;
+  // Toast.
+  const now = performance.now() / 1000;
+  if (s.toast && now < s.toastUntil) {
+    $('toast').style.display = 'block';
+    $('toast').innerHTML = `${s.toast}${s.toastSub ? `<small>${s.toastSub}</small>` : ''}`;
+  } else {
+    $('toast').style.display = 'none';
   }
+}
 
-  function update() {
-    const s = state;
-    const m = MISSIONS[s.missionIndex];
-    const inGame = s.screen === 'play' || s.screen === 'paused';
-    root.classList.toggle('in-game', inGame);
-    missionCard.style.display = inGame ? '' : 'none';
-    topRight.style.display = inGame ? '' : 'none';
-    dispatch.style.display = inGame && s.wanted > 0 ? '' : 'none';
-    minimapWrap.style.display = inGame ? '' : 'none';
-    vitals.style.display = inGame ? '' : 'none';
-    dialogue.style.display = inGame ? '' : 'none';
-    bottomRight.style.display = inGame ? '' : 'none';
-    menu.style.display = s.screen === 'play' ? 'none' : '';
-    toast.style.opacity = '0';
-    if (!inGame) { renderMenu(s); return; }
+export function showPrompt(text) {
+  const el = $('prompt');
+  if (text) { el.style.display = 'block'; el.textContent = text; }
+  else el.style.display = 'none';
+}
 
-    missionTitle.textContent = `Job ${m.id}/8 — ${m.title}`;
-    missionObj.textContent = m.objective;
-    missionStage.textContent = `Stage ${s.stageIndex + 1}/${m.stages.length} · ${m.stages[s.stageIndex] ?? 'Done'}`;
-    missionNext.textContent = s.stageIndex < m.stages.length - 1
-      ? `Next: ${m.stages[s.stageIndex + 1]}`
-      : 'Final stage — finish the job!';
-    const target = world.missionTarget();
-    const targetDist = Math.round(Math.hypot(target.x - world.player.x, target.z - world.player.z));
-    missionDist.textContent = `Target ${targetDist}m · ${target.label}`;
-    const mm = Math.floor(s.missionTime / 60);
-    const ss = Math.floor(s.missionTime % 60);
-    missionTimer.textContent = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+// --- Maps ---------------------------------------------------------------------
+// Both maps draw the same world: sea to the east, sand beach, the road grid,
+// building blocks, the objective marker, the player and the police.
 
-    wanted.textContent = '★'.repeat(s.wanted) + '☆'.repeat(5 - s.wanted);
-    wanted.className = `wanted wanted-${s.wanted}`;
-    money.textContent = fmtMoney(s.money);
-    clockLine.textContent = `Day ${s.day} · ${fmtClock(s.time)}`;
+function drawMapBase(ctx, size, world, city, label) {
+  const half = WORLD.half + 30;
+  const scale = size / (half * 2);
+  const toX = (x) => (x + half) * scale;
+  const toY = (z) => (z + half) * scale;
+  ctx.clearRect(0, 0, size, size);
+  // Land and sea.
+  ctx.fillStyle = '#1d2f1e'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#155e7d'; ctx.fillRect(toX(WORLD.seaX), 0, size - toX(WORLD.seaX), size);
+  ctx.fillStyle = '#d9b380'; ctx.fillRect(toX(WORLD.beachX), 0, toX(WORLD.seaX) - toX(WORLD.beachX), size);
+  // Roads.
+  ctx.fillStyle = '#3a3a40';
+  for (const ax of STREETS.avenues) ctx.fillRect(toX(ax) - 7 * scale, 0, 14 * scale, size);
+  for (const cz of STREETS.cross) ctx.fillRect(0, toY(cz) - 7 * scale, size, 14 * scale);
+  // Building blocks.
+  ctx.fillStyle = '#6b5a48';
+  for (const c of city.colliders) {
+    if (c.minX > WORLD.seaX) continue;
+    ctx.fillRect(toX(c.minX), toY(c.minZ), (c.maxX - c.minX) * scale, (c.maxZ - c.minZ) * scale);
+  }
+  // Marina docks.
+  ctx.fillStyle = '#8a6a45';
+  for (const d of city.dockSpots) ctx.fillRect(toX(d.x - 13), toY(d.z - 2.5), 26 * scale, 5 * scale);
+  // Lighthouse.
+  ctx.fillStyle = '#ffd23e';
+  ctx.beginPath(); ctx.arc(toX(178), toY(-185), label ? 7 : 4, 0, Math.PI * 2); ctx.fill();
+  if (label) {
+    ctx.fillStyle = '#ffe9a8'; ctx.font = 'bold 13px Arial';
+    // Keep labels inside the map: right-align anything past 60% width.
+    const lx = (x) => (toX(x) > size * 0.6 ? [toX(x) - 10, 'right'] : [toX(x) + 10, 'left']);
+    let [tx, ta] = lx(178);
+    ctx.textAlign = ta; ctx.fillText('LIGHTHOUSE', tx, toY(-185) + 4);
+    [tx, ta] = lx(196);
+    ctx.textAlign = ta; ctx.fillText('MARINA', tx, toY(144) + 4);
+    ctx.textAlign = 'left';
+    ctx.fillText('PALM BOULEVARD', toX(132) - 64, toY(210) - 8);
+    ctx.fillText('BEACH', toX(156) - 10, toY(-40));
+  }
+  return { toX, toY, scale };
+}
 
-    dispatchList.innerHTML = '';
-    const units = world.police.slice(0, 6);
-    if (s.mode === 'boat') {
-      const marine = [
-        { name: 'Marine-3', d: 18, tactic: 'RAMMING' },
-        { name: 'Marine-7', d: 26, tactic: 'PURSUIT' },
-        { name: 'Air-1', d: 34, tactic: 'SPOTLIGHT' },
-        { name: 'VCPD-42', d: 41, tactic: 'ROADBLOCK' },
-        { name: 'Marine-9', d: 55, tactic: 'FLANKING' },
-        { name: 'VCPD-11', d: 63, tactic: 'RESPONDING' },
-      ];
-      for (const u of marine) {
-        const row = el('div', 'dispatch-row');
-        row.append(el('span', 'dispatch-name', u.name), el('span', 'dispatch-dist', `${u.d}m`), el('span', 'dispatch-tactic', u.tactic));
-        dispatchList.appendChild(row);
-      }
+export function drawMinimap(world, city) {
+  const canvas = $('minimap');
+  const ctx = canvas.getContext('2d');
+  const size = canvas.width;
+  const { toX, toY } = drawMapBase(ctx, size, world, city, false);
+  const s = world.state;
+  // Objective marker.
+  if (!s.storyDone) {
+    const stage = world.currentStage();
+    ctx.fillStyle = '#ffd23e';
+    ctx.beginPath(); ctx.arc(toX(stage.x), toY(stage.z), 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  }
+  // Police.
+  ctx.fillStyle = '#3b82f6';
+  for (const c of world.cruisers) {
+    if (!c.active) continue;
+    ctx.beginPath(); ctx.arc(toX(c.x), toY(c.z), 4, 0, Math.PI * 2); ctx.fill();
+  }
+  if (world.heli.group.visible) {
+    ctx.fillStyle = '#60a5fa';
+    ctx.beginPath(); ctx.arc(toX(world.player.x + 14), toY(world.player.z - 10), 5, 0, Math.PI * 2); ctx.fill();
+  }
+  // Player arrow.
+  const px = toX(world.player.x), py = toY(world.player.z);
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(-world.player.heading);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // North tick.
+  ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center';
+  ctx.fillText('N', size / 2, 12);
+}
+
+export function drawBigMap(world, city) {
+  const canvas = $('bigmap');
+  const ctx = canvas.getContext('2d');
+  const size = canvas.width;
+  const { toX, toY } = drawMapBase(ctx, size, world, city, true);
+  const s = world.state;
+  if (!s.storyDone) {
+    const stage = world.currentStage();
+    ctx.fillStyle = '#ffd23e';
+    ctx.beginPath(); ctx.arc(toX(stage.x), toY(stage.z), 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = '#ffd23e'; ctx.font = 'bold 15px Arial';
+    if (toX(stage.x) > size * 0.6) {
+      ctx.textAlign = 'right';
+      ctx.fillText(`◈ ${stage.text.toUpperCase()}`, toX(stage.x) - 14, toY(stage.z) + 5);
     } else {
-      for (const p of units) {
-        const d = Math.round(Math.hypot(p.x - world.player.x, p.z - world.player.z));
-        const row = el('div', 'dispatch-row');
-        row.append(el('span', 'dispatch-name', p.name), el('span', 'dispatch-dist', `${d}m`), el('span', 'dispatch-tactic', p.tactic));
-        dispatchList.appendChild(row);
-      }
+      ctx.textAlign = 'left';
+      ctx.fillText(`◈ ${stage.text.toUpperCase()}`, toX(stage.x) + 14, toY(stage.z) + 5);
     }
-    if (s.wanted >= 3) {
-      const row = el('div', 'dispatch-row heli-row');
-      row.append(el('span', 'dispatch-name', 'Air-1'), el('span', 'dispatch-dist', '52m'), el('span', 'dispatch-tactic', 'SPOTLIGHT'));
-      dispatchList.appendChild(row);
-    }
-
-    healthBar.style.width = `${s.health}%`;
-    armourBar.style.width = `${s.armour}%`;
-    respectBar.style.width = `${Math.min(100, (s.respect / s.respectMax) * 100)}%`;
-    rankLine.textContent = `${s.respectRank} · ${s.respect}/${s.respectMax} Respect`;
-
-    dialogueName.textContent = `${m.giver} — ${m.giverRole}`;
-    dialogueText.textContent = m.dialogue;
-
-    if (s.mode === 'boat') {
-      speed.textContent = `${s.boatSpeedKn} kn`;
-      vehicle.textContent = 'La Marea · Speedboat';
-      condition.textContent = 'Hull 100%';
-    } else if (s.mode === 'car') {
-      speed.textContent = `${s.speedKmh} km/h`;
-      vehicle.textContent = s.carName;
-      condition.textContent = `Condition ${s.carCondition}%`;
-    } else {
-      speed.textContent = `${s.speedKmh} km/h`;
-      vehicle.textContent = 'On foot';
-      condition.textContent = `Condition ${s.carCondition}%`;
-    }
-    weapons.innerHTML = '';
-    WEAPONS.forEach((w, i) => {
-      const chip = el('span', `weapon-chip${i === s.weapon ? ' active' : ''}`, `${i + 1} ${w.name} ${w.ammo}`);
-      weapons.appendChild(chip);
-    });
-    radio.textContent = `♪ ${RADIO[s.radio].name} · ${RADIO[s.radio].style}`;
-
-    if (s.messageTimer > 0 && s.message) {
-      toast.textContent = s.message;
-      toast.style.opacity = '1';
-    } else {
-      toast.style.opacity = '0';
-    }
-    drawMinimap();
   }
-
-  function renderMenu(s) {
-    const m = MISSIONS[s.missionIndex];
-    if (s.screen === 'title') {
-      menuTitle.textContent = 'VERDE CAY';
-      menuSub.textContent = 'An open-world crime game · 8 story jobs · Verde Cay Police';
-      menuBody.innerHTML = '';
-      const lines = [
-        `New Game — Job 1/8: ${MISSIONS[0].title}`,
-        `Continue — Job ${m.id}/8: ${m.title} · ${fmtMoney(s.money)}`,
-        'Controls — WASD · E enter · F fire · Space brake · M map',
-        'Crew — Ana (Driver) · Marco (Wheelman) · Rosa (Mechanic) · Kiki (Lookout) · Uncle Sol (Fixer)',
-        'Garage — ' + GARAGE_CARS.map((c) => c.name).join(' · '),
-      ];
-      for (const line of lines) menuBody.appendChild(el('div', 'menu-line', line));
-      menuPrompt.textContent = 'Press Enter or click to start';
-    } else if (s.screen === 'paused' || s.screen === 'map') {
-      menuTitle.textContent = s.screen === 'map' ? 'MAP — VERDE CAY' : 'PAUSED';
-      menuSub.textContent = `Job ${m.id}/8: ${m.title} · ${fmtMoney(s.money)} · ${s.respect} respect · Day ${s.day}`;
-      menuBody.innerHTML = '';
-      const stats = [
-        `Missions — ${s.missionIndex}/8 complete · current: ${m.title}`,
-        `Crew — ${CREW.map((c) => `${c.name} (${c.role})`).join(' · ')}`,
-        `Crew abilities — ${CREW.map((c) => c.ability).join(' · ')}`,
-        `Garage — ${s.garage.join(' · ')}`,
-        `Radio — ${RADIO.map((r) => r.name).join(' · ')}`,
-        `Wanted — ${s.wanted} stars · Health ${Math.round(s.health)} · Armour ${Math.round(s.armour)}`,
-        'Save — progress saves automatically after every job (localStorage).',
-      ];
-      for (const line of stats) menuBody.appendChild(el('div', 'menu-line', line));
-      menuPrompt.textContent = 'Press P or M to return to the game';
-    } else if (s.screen === 'over') {
-      menuTitle.textContent = 'BUSTED';
-      menuSub.textContent = 'The VCPD caught up with you in Verde Cay.';
-      menuBody.innerHTML = '';
-      menuBody.appendChild(el('div', 'menu-line', `You reached Job ${m.id}/8: ${m.title} · ${fmtMoney(s.money)}`));
-      menuPrompt.textContent = 'Press Enter to try again';
-    } else if (s.screen === 'won') {
-      menuTitle.textContent = 'OPEN WATER';
-      menuSub.textContent = 'You made it. Verde Cay is yours.';
-      menuBody.innerHTML = '';
-      menuBody.appendChild(el('div', 'menu-line', `All 8 jobs done · ${fmtMoney(s.money)} · ${s.respect} respect · Shot Caller`));
-      menuPrompt.textContent = 'Press Enter to play again';
-    }
-    menu.style.display = '';
+  ctx.fillStyle = '#3b82f6';
+  for (const c of world.cruisers) {
+    if (!c.active) continue;
+    ctx.beginPath(); ctx.arc(toX(c.x), toY(c.z), 6, 0, Math.PI * 2); ctx.fill();
   }
+  const px = toX(world.player.x), py = toY(world.player.z);
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(-world.player.heading);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(7, 8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  const stats = $('mapstats');
+  const job = s.storyDone ? null : world.currentJob();
+  stats.innerHTML = `
+    <b>YOU</b> — $${s.money.toLocaleString()} · ${s.respect} RESPECT<br>
+    <b>JOB</b> — ${s.storyDone ? 'All done' : `${s.jobIndex + 1}/8 ${job.name}`}<br>
+    <b>WANTED</b> — ${'★'.repeat(s.wanted)}${'☆'.repeat(5 - s.wanted)}<br>
+    <b>HEALTH</b> — ${Math.round(s.health)} · <b>ARMOUR</b> — ${Math.round(s.armour)}<br>
+    <b>GARAGE</b> — ${s.garage.join(', ')}<br>
+    <b>CREW</b><br>${CREW.map((c) => `· ${c.name} — ${c.role}`).join('<br>')}`;
+}
 
-  return { update, renderMenu };
+export function fillPauseStats(world) {
+  const s = world.state;
+  $('pause-stats').innerHTML = `
+    Money <b>$${s.money.toLocaleString()}</b> · Respect <b>${s.respect}</b><br>
+    Job <b>${s.storyDone ? 'Story complete' : `${s.jobIndex + 1} / 8 — ${world.currentJob().name}`}</b><br>
+    Wanted <b>${'★'.repeat(s.wanted)}${'☆'.repeat(5 - s.wanted)}</b> · Health <b>${Math.round(s.health)}</b>`;
 }

@@ -1,74 +1,170 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verde Cay — Open-World Crime</title>
+<link rel="icon" href="data:,">
+<title>VERDE CAY — an open-world crime game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1210; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
-  .hud-card { position: absolute; background: rgba(12, 16, 24, 0.72); border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(2px); }
-  .mission-card { top: 14px; left: 14px; width: 360px; }
-  .mission-title { font-size: 21px; font-weight: 800; color: #ffd23f; letter-spacing: 0.4px; }
-  .mission-objective { font-size: 16px; font-weight: 600; margin-top: 4px; }
-  .mission-stage { font-size: 14px; color: #cfe3ff; margin-top: 3px; }
-  .mission-next { font-size: 14px; color: #ffd9a0; margin-top: 2px; }
-  .mission-dist { font-size: 14px; color: #ffd23f; font-weight: 700; margin-top: 2px; }
-  .mission-timer { font-size: 13px; color: #9fb3c8; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .top-right { top: 14px; right: 14px; text-align: right; min-width: 190px; }
-  .wanted { font-size: 30px; letter-spacing: 3px; color: #ffb02e; line-height: 1; }
-  .wanted-0 { color: #9fb3c8; }
-  .money { font-size: 22px; font-weight: 800; color: #7be495; margin-top: 4px; }
-  .clock-line { font-size: 13px; color: #cfe3ff; margin-top: 2px; }
-  .dispatch { top: 122px; right: 14px; width: 260px; }
-  .dispatch-title { font-size: 13px; font-weight: 800; color: #ff8a7a; letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.25); padding-bottom: 5px; margin-bottom: 6px; }
-  .dispatch-row { display: flex; gap: 8px; font-size: 14px; line-height: 1.7; }
-  .dispatch-name { font-weight: 700; width: 76px; }
-  .dispatch-dist { color: #ffd23f; width: 44px; }
-  .dispatch-tactic { color: #cfe3ff; font-weight: 700; }
-  .minimap-wrap { position: absolute; left: 14px; bottom: 14px; width: 220px; height: 220px; }
-  .minimap { width: 220px; height: 220px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.8); background: #1d2b33; box-shadow: 0 4px 18px rgba(0,0,0,0.5); }
-  .minimap-label { position: absolute; left: 0; right: 0; bottom: -2px; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: 2px; text-shadow: 0 1px 3px #000; }
-  .vitals { left: 250px; bottom: 14px; width: 240px; }
-  .vital-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
-  .vital-label { font-size: 11px; font-weight: 800; width: 62px; color: #cfe3ff; }
-  .vital-track { height: 10px; border-radius: 5px; background: #2c3540; flex: 1; overflow: hidden; }
-  .vital-bar { height: 100%; border-radius: 5px; }
-  .health-bar { background: linear-gradient(90deg, #37c978, #7be495); }
-  .armour-bar { background: linear-gradient(90deg, #3a7bd5, #7ab8ff); }
-  .respect-bar { background: linear-gradient(90deg, #b967ff, #e0aaff); }
-  .rank-line { font-size: 13px; font-weight: 700; color: #ffd23f; margin-top: 6px; }
-  .dialogue { left: 50%; bottom: 132px; transform: translateX(-50%); width: 460px; text-align: center; }
-  .dialogue-name { font-size: 13px; font-weight: 800; color: #ffd23f; }
-  .dialogue-text { font-size: 16px; font-style: italic; margin-top: 3px; line-height: 1.35; }
-  .bottom-right { right: 14px; bottom: 14px; text-align: right; min-width: 230px; }
-  .speed { font-size: 38px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-  .vehicle { font-size: 15px; font-weight: 700; margin-top: 3px; }
-  .condition { font-size: 13px; color: #cfe3ff; }
-  .weapons { margin-top: 8px; display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
-  .weapon-chip { font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25); border-radius: 5px; padding: 3px 6px; }
-  .weapon-chip.active { background: #ffd23f; color: #111; border-color: #ffd23f; }
-  .radio { font-size: 13px; color: #ffd9a0; margin-top: 7px; font-weight: 700; }
-  .toast { position: absolute; top: 44%; left: 50%; transform: translateX(-50%); background: rgba(12,16,24,0.85); border: 1px solid #ffd23f; color: #ffd23f; font-size: 17px; font-weight: 700; padding: 10px 18px; border-radius: 8px; transition: opacity 0.4s; text-align: center; max-width: 640px; }
-  .menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(20,10,20,0.25) 0%, rgba(20,10,20,0.72) 100%); text-align: center; padding: 20px; }
-  .menu-title { font-size: 84px; font-weight: 900; letter-spacing: 4px; color: #ffd23f; text-shadow: 0 4px 0 #b3541e, 0 10px 30px rgba(0,0,0,0.8); line-height: 1; }
-  .menu-sub { font-size: 17px; color: #fff; margin-top: 10px; font-weight: 600; text-shadow: 0 2px 6px #000; }
-  .menu-body { margin-top: 26px; background: rgba(12,16,24,0.78); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 16px 22px; max-width: 680px; text-align: left; }
-  .menu-line { font-size: 14px; line-height: 1.9; color: #eef1f5; }
-  .menu-prompt { margin-top: 26px; font-size: 19px; font-weight: 800; color: #7be495; text-shadow: 0 2px 6px #000; animation: pulse 1.6s infinite; }
-  .menu-hint { margin-top: 12px; font-size: 12px; color: #cfe3ff; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a0e14;
+    font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif; color: #fff; }
+  #scene { position: fixed; inset: 0; }
+  #scene canvas { display: block; width: 100%; height: 100%; }
+  .panel { background: rgba(12, 8, 16, 0.62); border: 1px solid rgba(255, 190, 90, 0.35);
+    border-radius: 6px; backdrop-filter: blur(2px); box-shadow: 0 2px 10px rgba(0,0,0,0.45); }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
+  #hud.on { display: block; }
+  #mission-card { position: absolute; top: 14px; left: 14px; padding: 10px 14px; min-width: 300px; }
+  #mission-card .job { font-size: 13px; letter-spacing: 2px; color: #ffb84d; font-weight: bold; }
+  #mission-card .jobname { font-size: 26px; font-weight: 900; letter-spacing: 1px; line-height: 1.05;
+    font-family: "Arial Black", Arial, sans-serif; text-transform: uppercase; }
+  #mission-card .stage { font-size: 13px; color: #ffd9a0; margin-top: 2px; }
+  #mission-card .next { font-size: 14px; margin-top: 6px; color: #fff; }
+  #mission-card .timer { font-size: 13px; color: #9fe8ff; margin-top: 4px; }
+  #wanted-bar { position: absolute; top: 14px; right: 14px; padding: 8px 14px; text-align: right; }
+  #wanted-bar .stars { font-size: 26px; letter-spacing: 3px; color: #ffd23e; text-shadow: 0 0 8px rgba(255,180,0,.7); }
+  #wanted-bar .stars .off { color: rgba(255,255,255,0.25); text-shadow: none; }
+  #wanted-bar .money { font-size: 22px; font-weight: 900; color: #7dff9a; font-family: "Arial Black", Arial, sans-serif; }
+  #wanted-bar .clock { font-size: 14px; color: #cfe8ff; }
+  #dispatch { position: absolute; top: 118px; right: 14px; width: 252px; padding: 8px 10px; }
+  #dispatch h3 { font-size: 12px; letter-spacing: 2px; color: #ff5d5d; margin-bottom: 6px; }
+  #dispatch .unit { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0;
+    border-top: 1px solid rgba(255,255,255,0.12); }
+  #dispatch .unit .tac { color: #ffb84d; font-weight: bold; }
+  #vitals { position: absolute; left: 14px; bottom: 14px; padding: 10px 14px; width: 320px; }
+  #vitals .bar-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 12px; }
+  #vitals .bar-row label { width: 62px; letter-spacing: 1px; color: #ffd9a0; font-weight: bold; }
+  #vitals .bar { flex: 1; height: 10px; background: rgba(255,255,255,0.18); border-radius: 5px; overflow: hidden; }
+  #vitals .bar > div { height: 100%; }
+  #health-fill { background: #4ade80; width: 100%; }
+  #armour-fill { background: #60a5fa; width: 100%; }
+  #respect-fill { background: #f472b6; width: 40%; }
+  #dialogue { margin-top: 8px; font-size: 14px; font-style: italic; color: #ffe9c4; line-height: 1.3; }
+  #dialogue b { color: #ffb84d; font-style: normal; }
+  #minimap-wrap { position: absolute; right: 14px; bottom: 14px; width: 218px; height: 218px;
+    border-radius: 50%; overflow: hidden; border: 3px solid rgba(255, 190, 90, 0.55);
+    box-shadow: 0 0 0 4px rgba(12,8,16,0.55), 0 4px 16px rgba(0,0,0,0.6); background: #0d1b2a; }
+  #minimap { width: 100%; height: 100%; display: block; }
+  #drive-panel { position: absolute; right: 246px; bottom: 14px; padding: 10px 14px; text-align: right; min-width: 220px; }
+  #drive-panel .speed { font-size: 40px; font-weight: 900; line-height: 1; font-family: "Arial Black", Arial, sans-serif; }
+  #drive-panel .speed small { font-size: 14px; color: #ffd9a0; }
+  #drive-panel .carname { font-size: 14px; color: #ffb84d; font-weight: bold; letter-spacing: 1px; }
+  #drive-panel .cond { font-size: 12px; color: #cfe8ff; }
+  #weapons { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+  #weapons .slot { width: 44px; height: 30px; border: 1px solid rgba(255,255,255,0.35); border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; background: rgba(255,255,255,0.08); }
+  #weapons .slot.active { border-color: #ffb84d; background: rgba(255,184,77,0.25); color: #ffb84d; font-weight: bold; }
+  #radio-line { margin-top: 6px; font-size: 12px; color: #9fe8ff; letter-spacing: 1px; }
+  #prompt { position: absolute; left: 50%; bottom: 26%; transform: translateX(-50%);
+    padding: 8px 18px; font-size: 17px; font-weight: bold; letter-spacing: 1px; display: none; }
+  #toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%);
+    font-size: 30px; font-weight: 900; letter-spacing: 2px; color: #ffd23e;
+    text-shadow: 0 2px 0 #7a2e00, 0 0 18px rgba(255,150,0,.8); display: none; text-align: center;
+    font-family: "Arial Black", Arial, sans-serif; }
+  #toast small { display: block; font-size: 15px; color: #fff; letter-spacing: 1px; text-shadow: 0 1px 4px #000; }
+  .overlay { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
+    flex-direction: column; text-align: center; background: linear-gradient(180deg, rgba(20,6,20,0.25) 0%, rgba(20,6,20,0.72) 78%); }
+  .overlay.on { display: flex; }
+  #menu h1 { font-size: 96px; font-weight: 900; letter-spacing: 4px; line-height: 0.95;
+    font-family: "Arial Black", Arial, sans-serif; color: #fff;
+    text-shadow: 0 4px 0 #c2410c, 0 8px 24px rgba(0,0,0,0.8); }
+  #menu h1 .cay { color: #ffb84d; }
+  #menu .tag { font-size: 20px; letter-spacing: 6px; color: #ffd9a0; margin-top: 8px; }
+  #menu .sub { font-size: 16px; color: #e8f4ff; margin-top: 18px; max-width: 560px; line-height: 1.5; }
+  #menu .keys { margin-top: 26px; font-size: 14px; color: #cfe8ff; line-height: 1.9; letter-spacing: 1px; }
+  #menu .keys b { color: #ffb84d; }
+  #menu .start { margin-top: 28px; font-size: 22px; font-weight: 900; letter-spacing: 3px; color: #1a0e14;
+    background: #ffb84d; padding: 12px 34px; border-radius: 6px; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  #mapview { background: rgba(8, 12, 20, 0.94); }
+  #mapview h2 { font-size: 34px; letter-spacing: 4px; color: #ffb84d; font-family: "Arial Black", Arial, sans-serif; }
+  #mapview .maprow { display: flex; gap: 28px; margin-top: 18px; align-items: flex-start; }
+  #bigmap { border: 2px solid rgba(255,184,77,0.5); border-radius: 8px; background: #0d1b2a; }
+  #mapstats { text-align: left; font-size: 16px; line-height: 2; color: #e8f4ff; min-width: 260px; }
+  #mapstats b { color: #ffb84d; }
+  #mapview .hint, #pauseview .hint { margin-top: 18px; font-size: 14px; color: #9fb8cc; letter-spacing: 2px; }
+  #pauseview h2 { font-size: 44px; letter-spacing: 5px; font-family: "Arial Black", Arial, sans-serif; }
+  #pauseview .pstats { margin-top: 16px; font-size: 17px; line-height: 2; color: #e8f4ff; }
+  #pauseview .pstats b { color: #ffb84d; }
+  #loading { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+    background: #1a0e14; font-size: 20px; letter-spacing: 3px; color: #ffb84d; }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.min.js" } }
 </script>
 </head>
 <body>
-<canvas id="game" aria-label="Verde Cay: an open-world crime game. Drive, walk and sail around Verde Cay, do jobs, lose the police."></canvas>
-<p id="status" role="status" aria-live="polite"></p>
-<div id="hud"></div>
+<div id="scene"></div>
+<div id="loading">LOADING VERDE CAY…</div>
+
+<div id="hud">
+  <div id="mission-card" class="panel">
+    <div class="job" id="hud-job">JOB 1 / 8</div>
+    <div class="jobname" id="hud-jobname">FIRST LIGHT</div>
+    <div class="stage" id="hud-stage">Stage 1 of 2</div>
+    <div class="next" id="hud-next">Reach the marina gate</div>
+    <div class="timer" id="hud-timer">⏱ 04:59</div>
+  </div>
+  <div id="wanted-bar" class="panel">
+    <div class="stars" id="hud-stars">☆☆☆☆☆</div>
+    <div class="money" id="hud-money">$1,250</div>
+    <div class="clock" id="hud-clock">18:42 · SAT</div>
+  </div>
+  <div id="dispatch" class="panel">
+    <h3>◆ VCPD DISPATCH</h3>
+    <div id="dispatch-units"></div>
+  </div>
+  <div id="vitals" class="panel">
+    <div class="bar-row"><label>HEALTH</label><div class="bar"><div id="health-fill"></div></div></div>
+    <div class="bar-row"><label>ARMOUR</label><div class="bar"><div id="armour-fill"></div></div></div>
+    <div class="bar-row"><label>RESPECT</label><div class="bar"><div id="respect-fill"></div></div></div>
+    <div id="dialogue"><b>ANA:</b> “Easy does it. The Cay is ours tonight.”</div>
+  </div>
+  <div id="minimap-wrap"><canvas id="minimap" width="220" height="220"></canvas></div>
+  <div id="drive-panel" class="panel">
+    <div class="speed"><span id="hud-speed">0</span> <small id="hud-speedunit">km/h</small></div>
+    <div class="carname" id="hud-carname">ON FOOT</div>
+    <div class="cond" id="hud-cond">Condition 100%</div>
+    <div id="weapons">
+      <div class="slot active" data-w="1">1 · FIST</div>
+      <div class="slot" data-w="2">2 · PISTOL</div>
+      <div class="slot" data-w="3">3 · SMG</div>
+    </div>
+    <div id="radio-line">♪ RADIO · WAVE 96.1 — SUNSET FM</div>
+  </div>
+  <div id="prompt" class="panel"></div>
+  <div id="toast"></div>
+</div>
+
+<div id="menu" class="overlay on">
+  <h1>VERDE<br><span class="cay">CAY</span></h1>
+  <div class="tag">AN OPEN-WORLD CRIME STORY</div>
+  <div class="sub">Eight jobs. One crew. A city that never sleeps and a police force that never
+    forgets. Steal it, drive it, sail it — and make it out to open water.</div>
+  <div class="keys">
+    <b>W A S D</b> move / drive &nbsp;·&nbsp; <b>E</b> enter / exit vehicle &nbsp;·&nbsp; <b>F</b> fire<br>
+    <b>SPACE</b> brake &nbsp;·&nbsp; <b>SHIFT</b> run &nbsp;·&nbsp; <b>1 2 3</b> weapons &nbsp;·&nbsp; <b>Q</b> radio<br>
+    <b>M</b> map &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>ENTER</b> start
+  </div>
+  <div class="start">PRESS ENTER TO PLAY</div>
+</div>
+
+<div id="mapview" class="overlay">
+  <h2>VERDE CAY — CITY MAP</h2>
+  <div class="maprow">
+    <canvas id="bigmap" width="560" height="560"></canvas>
+    <div id="mapstats"></div>
+  </div>
+  <div class="hint">M / ESC — BACK TO THE STREETS</div>
+</div>
+
+<div id="pauseview" class="overlay">
+  <h2>PAUSED</h2>
+  <div class="pstats" id="pause-stats"></div>
+  <div class="hint">P — RESUME &nbsp;·&nbsp; PROGRESS SAVES AUTOMATICALLY</div>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

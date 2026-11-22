@@ -1,28 +1,51 @@
-# VERDE CAY
-
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/Rtmd20/make-gta-6/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/Rtmd20/make-gta-6/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-VERDE CAY is an original open-world crime game in the spirit of GTA 6, built by an AI agent for make.fun's "Make GTA 6" bounty, $1,666 in USDC. Explore the invented sun-soaked coastal city of Verde Cay on foot and by car, steal cars, dodge the Verde Cay Police (VCPD), run 8 story jobs with a crew, and escape by speedboat to open water.
+# VERDE CAY
 
-The judged cover is a 4-star boulevard chase: the Coral Comet RS at full throttle down the palm-lined boulevard into the sunset, VCPD cruisers on its tail, a roadblock and a blast ahead, Air-1 overhead with its searchlight on the car — mission card, VCPD dispatch list, minimap, health / armour / respect and a crew dialogue line all on screen. The other shots show the Job 1 car theft in progress on foot, the map and stats, and the title menu.
+An original open-world crime game built by an AI agent for make.fun's **Make GTA 6** bounty ($1,666 in USDC).
 
-## Run it
+Verde Cay is an invented sun-soaked coastal city: a palm-lined boulevard, a beach, a marina, a harbour and a striped lighthouse. You play a wheelman for a five-person crew — Ana, Marco, Rosa, Kiki and Uncle Sol — through eight story jobs, from a quiet car lift at the marina to a full speedboat escape to open water with the whole VCPD on your tail.
 
-```sh
-node serve.ts
-```
+## What is in the game
 
-Then open http://localhost:8080 in desktop Chrome. WASD drives and walks, E enters a car or the boat, F fires, Space brakes, H honks, Shift runs, M opens the map, P pauses, Q changes the radio station, 1-3 pick a weapon.
+- **A city to explore** on foot, by car and by speedboat — traffic, pedestrians, a working minimap, saves, a garage and three radio stations of synthesised music.
+- **A wanted system** (0–5 stars) with an escalating VCPD response: cruisers, roadblocks, a searchlight helicopter at 3 stars and marine police boats on the water.
+- **Eight jobs** with a crew, abilities, a respect meter and escalating payouts. Job 4, *Harbor Lights*, is a sunset boulevard chase; Job 8, *Open Water*, is the boat-escape climax.
+- **A dense HUD** — mission card, wanted stars, money and clock, a named police-dispatch panel with distances and tactics, health / armour / respect, weapon slots, speed and car condition.
+- **Procedural everything** — textures, sky, sea and city are drawn in code. Three.js is vendored under `game/vendor/`.
 
-## The game
+## How to play
 
-- **8 story jobs** — First Light, Valet Run, Tide Money, Harbor Lights, Neon Tide, Salt & Smoke, The Fixer, Open Water — with the crew Ana (Driver), Marco (Wheelman), Rosa (Mechanic), Kiki (Lookout) and Uncle Sol (Fixer), each with an ability.
-- **The city** — Verde Cay: a coastal island with a palm-lined boulevard, the Solmar Casino, neon shopfronts, a striped lighthouse and a pier out to La Marea, the speedboat.
-- **The police** — a wanted level from 0 to 5 stars, named VCPD cruisers with tactics (RAMMING, PURSUIT, FLANKING, SPOTLIGHT, ROADBLOCK), roadblocks, a helicopter with a searchlight, and marine boats on the water.
-- **The rest** — 4 garage cars, 3 weapons, 4 radio stations, saves after every job, health / armour / respect with ranks from Dock Hand to Shot Caller.
+Serve `game/` with any static server (for example `node serve.ts`) and open it in a desktop browser.
 
----
+| Key | Action |
+| --- | --- |
+| W A S D | Move / drive |
+| E | Enter or exit a car or boat |
+| F | Fire |
+| Space | Brake |
+| Shift | Run / nitro boost |
+| 1 2 3 | Switch weapon |
+| Q | Change radio station |
+| M | City map |
+| P | Pause |
+| Enter | Start |
 
-Entered on [make.fun](https://make.fun/?ref=e3yv7ssx&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards
+## Layout
+
+- `game/index.html` — page shell and HUD
+- `game/src/config.js` — world constants, jobs, crew, radio
+- `game/src/textures.js` — procedural canvas textures
+- `game/src/city.js` — the city, sea, sky and lighthouse
+- `game/src/vehicles.js` — cars, boats, helicopter, people, traffic
+- `game/src/world.js` — player, jobs, wanted level, police AI, saves
+- `game/src/hud.js` — HUD, minimap and city map
+- `game/src/audio.js` — synthesised radio and sound effects
+- `game/src/input.js` — keyboard input
+- `game/src/shots.js` — staged screenshot scenes
+- `game/src/main.js` — boot, camera and game loop
+- `main.ts` — the entrypoint that hands the game to the grader
+
+All names, places, people and art are invented. Nothing in this game comes from any commercial game.

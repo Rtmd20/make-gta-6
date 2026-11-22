@@ -1,813 +1,494 @@
-// Verde Cay's living world: the player on foot, in a car or in the speedboat,
-// traffic, pedestrians, VCPD police who answer the wanted level, eight story
-// missions, combat, and saving. All the numbers come from config.js.
+// Verde Cay — game state and rules: the player on foot and in vehicles, the
+// eight story jobs, the wanted level and the VCPD response, combat, and saves.
 import * as THREE from 'three';
-import { CITY, CAR, BOAT, PLAYER, MISSIONS, GARAGE_CARS, SAVE_KEY } from './config.js';
-import { makeCarMesh, makeBoatMesh, makeHeliMesh, makePedMesh, makePlayerMesh, makeMarkerMesh } from './vehicles.js';
+import { JOBS, HERO_CAR, SAVE_KEY, defaultSave, WORLD, CREW } from './config.js';
+import { makeCarMesh, makeBoatMesh, makeHeliMesh, makePersonMesh, createTraffic, createPedestrians, updateTraffic, updatePedestrians } from './vehicles.js';
+import { makeExplosion, tickExplosion } from './city.js';
+import { playShot, playChime, setEngine, setSiren } from './audio.js';
+import * as input from './input.js';
 
-const POLICE_NAMES = ['VCPD-11', 'VCPD-25', 'VCPD-38', 'VCPD-42', 'VCPD-57', 'VCPD-63', 'VCPD-71', 'VCPD-88', 'Marine-3', 'Marine-7', 'Air-1', 'Air-2'];
-const TACTICS = ['RAMMING', 'PURSUIT', 'FLANKING', 'SPOTLIGHT', 'ROADBLOCK', 'FIRING', 'RESPONDING', 'CLOSING IN'];
-const PED_COLORS = [0xf2e6b8, 0x9fc5e8, 0xe88ca0, 0x8fd0a0, 0xd9b48a, 0xc9a0dc];
-const TRAFFIC_COLORS = [0x3a7bd5, 0xf2b705, 0x8a8f98, 0x2fae6e, 0xffffff, 0x222831, 0xd96a2b];
+const KNOTS = 0.539957;
 
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-function dist2(ax, az, bx, bz) { const dx = ax - bx, dz = az - bz; return Math.sqrt(dx * dx + dz * dz); }
-function angleTo(ax, az, bx, bz) { return Math.atan2(bx - ax, bz - az); }
-
-export function createWorld(rng, scene, city, audio) {
+export function createWorld(scene, city) {
+  const save = loadSave();
   const state = {
-    mode: 'foot',
-    screen: 'title',
-    time: 18.67,
-    day: 9,
-    money: 21780,
-    respect: 165,
-    respectMax: 500,
-    respectRank: 'Dock Hand',
-    health: 100,
-    armour: 55,
-    wanted: 0,
-    missionIndex: 0,
-    stageIndex: 0,
-    weapon: 1,
-    carName: 'Coral Comet RS',
-    carCondition: 100,
-    speedKmh: 0,
-    boatSpeedKn: 0,
-    missionTime: 0,
-    heatTimer: 0,
-    paused: false,
-    over: false,
-    won: false,
-    radio: 0,
-    shotsFired: 0,
-    carsStolen: 0,
-    crew: ['Ana', 'Marco', 'Rosa'],
-    garage: GARAGE_CARS.map((c) => c.name),
-    dropsCollected: 0,
-    message: '',
-    messageTimer: 0,
-    cameraYaw: Math.PI,
-    cameraPitch: 0.32,
+    mode: 'menu', // menu | play | map | pause
+    money: save.money, respect: save.respect,
+    health: save.health, armour: save.armour,
+    jobIndex: save.jobIndex, stageIndex: 0,
+    jobTimer: 300, wanted: 0, heat: 0,
+    weapon: 1, clockMin: 18 * 60 + 42,
+    garage: save.garage.slice(),
+    toast: '', toastUntil: 0, toastSub: '',
+    dialogue: JOBS[Math.min(save.jobIndex, 7)].line,
+    storyDone: save.jobIndex >= JOBS.length,
+    firedRecently: 0,
   };
 
-  const playerMesh = makePlayerMesh();
-  scene.add(playerMesh);
-  const carMesh = makeCarMesh(0xe8481f, false);
-  scene.add(carMesh);
-  const boatMesh = makeBoatMesh();
-  boatMesh.position.set(0, 0.4, 252);
-  scene.add(boatMesh);
-  const heliMesh = makeHeliMesh();
-  heliMesh.visible = false;
-  scene.add(heliMesh);
-  // Two VCPD marine boats for the boat escape — white hulls so they read
-  // against the teal water, hidden until the player is on the water.
-  const marineBoats = [];
-  for (let i = 0; i < 2; i += 1) {
-    const mb = makeBoatMesh(0xeef2f4);
-    mb.visible = false;
-    scene.add(mb);
-    marineBoats.push({ mesh: mb, x: 0, z: 0, heading: 0, name: i === 0 ? 'Marine-3' : 'Marine-7' });
+  // --- Player ---------------------------------------------------------------
+  const playerMesh = makePersonMesh(0xf97316);
+  scene.add(playerMesh.group);
+  const player = {
+    group: playerMesh.group, x: 96, z: 132, heading: Math.PI, speed: 0,
+    onFoot: true, vehicle: null, boat: false, condition: 100,
+  };
+  player.group.position.set(player.x, 0, player.z);
+
+  // --- Vehicles ---------------------------------------------------------------
+  const hero = makeCarMesh(HERO_CAR.colour);
+  hero.group.position.set(96, 0, 120);
+  hero.group.rotation.y = Math.PI;
+  scene.add(hero.group);
+  const heroCar = { mesh: hero, x: 96, z: 120, heading: Math.PI, speed: 0, name: HERO_CAR.name, condition: 100, isHero: true };
+
+  const traffic = createTraffic(scene, 14);
+  const peds = createPedestrians(scene, 18);
+
+  // Player boat moored at the marina.
+  const playerBoatMesh = makeBoatMesh(0x0ea5e9);
+  playerBoatMesh.group.position.set(206, 0.2, 144);
+  playerBoatMesh.group.rotation.y = Math.PI / 2;
+  scene.add(playerBoatMesh.group);
+  const playerBoat = { mesh: playerBoatMesh, x: 206, z: 144, heading: Math.PI / 2, speed: 0, name: 'Marlin 240 Speedboat', condition: 100, isBoat: true };
+
+  // Marine police boats patrolling off the marina.
+  const marine = [];
+  for (let i = 0; i < 2; i++) {
+    const b = makeBoatMesh(0xf5f5f0);
+    b.group.position.set(220 + i * 18, 0.2, 100 + i * 60);
+    scene.add(b.group);
+    marine.push({ mesh: b, x: 220 + i * 18, z: 100 + i * 60, heading: Math.PI, speed: 0, patrol: 100 + i * 60 });
   }
-  const marker = makeMarkerMesh();
+
+  // Police cruiser pool (spawned by wanted level) and the helicopter.
+  const cruisers = [];
+  for (let i = 0; i < 4; i++) {
+    const c = makeCarMesh(0x1f2937, { police: true });
+    c.group.visible = false;
+    scene.add(c.group);
+    cruisers.push({ mesh: c, x: 0, z: 0, heading: 0, speed: 0, active: false, hp: 3, name: `VCPD-${101 + i}` });
+  }
+  const heli = makeHeliMesh();
+  heli.group.visible = false;
+  scene.add(heli.group);
+  let heliActive = false;
+
+  // Objective marker: a light pillar and a floating diamond.
+  const marker = new THREE.Group();
+  const pillar = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 60, 12, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffd23e, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }));
+  pillar.position.y = 30;
+  const diamond = new THREE.Mesh(new THREE.OctahedronGeometry(1.4),
+    new THREE.MeshBasicMaterial({ color: 0xffd23e }));
+  diamond.position.y = 6;
+  marker.add(pillar, diamond);
   scene.add(marker);
-  // Roadblock blast: a fireball, a hot core, a smoke column and a point
-  // light, staged only for the cover chase — hidden while playing.
-  const blast = new THREE.Group();
-  const blastCore = new THREE.Mesh(
-    new THREE.SphereGeometry(1.25, 12, 10),
-    new THREE.MeshBasicMaterial({ color: 0xffd21a }),
-  );
-  blastCore.position.y = 1.8;
-  blast.add(blastCore);
-  // Flat unlit orange: a lit standard material washes out to cream under the
-  // sunset + ACES tone mapping, so the fireball reads as a pale balloon.
-  const blastFire = new THREE.Mesh(
-    new THREE.SphereGeometry(1.9, 14, 12),
-    new THREE.MeshBasicMaterial({ color: 0xff5a00, transparent: true, opacity: 0.72 }),
-  );
-  blastFire.position.y = 2.0;
-  blast.add(blastFire);
-  // Smoke column: one soft tilted capsule with a drifting puff on top — a
-  // stack of equal dark spheres reads as balloons, and a solid cone reads
-  // as a black pyramid in the middle of the road at the vanishing point.
-  const smokeMat = new THREE.MeshStandardMaterial({ color: 0x2e2e2e, roughness: 1, transparent: true, opacity: 0.6 });
-  const smokeColumn = new THREE.Mesh(new THREE.CapsuleGeometry(2.0, 9, 6, 12), smokeMat);
-  smokeColumn.position.set(0, 10, -0.5);
-  smokeColumn.rotation.z = 0.06;
-  blast.add(smokeColumn);
-  const smokeTop = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 10), smokeMat);
-  smokeTop.position.set(-0.8, 16.5, -1);
-  blast.add(smokeTop);
-  const blastLight = new THREE.PointLight(0xff8a2a, 220, 70, 1.8);
-  blastLight.position.y = 4;
-  blast.add(blastLight);
-  blast.visible = false;
-  scene.add(blast);
 
-  const player = { x: -8, z: 108, heading: Math.PI, speed: 0, walkPhase: 0 };
-  const car = { x: -180, z: 100, heading: 0.4, speed: 0, condition: 100, name: 'Coral Comet RS', color: 0xe8481f, parked: true };
-  const boat = { x: 0, z: 252, heading: Math.PI, speed: 0, boarded: false };
-  const heli = { x: 40, z: 60, y: 55, heading: 0 };
+  const explosions = [];
+  let saveTimer = 0;
 
-  const traffic = [];
-  for (let i = 0; i < 14; i += 1) {
-    const mesh = makeCarMesh(rng.pick(TRAFFIC_COLORS), false);
-    scene.add(mesh);
-    const horizontal = rng.chance(0.5);
-    traffic.push({
-      mesh,
-      x: rng.range(-280, 280), z: horizontal ? rng.pick([-256, -192, -128, -64, 0, 64, 128]) : rng.range(-280, 120),
-      heading: horizontal ? (rng.chance(0.5) ? Math.PI / 2 : -Math.PI / 2) : (rng.chance(0.5) ? 0 : Math.PI),
-      speed: rng.range(9, 16), horizontal,
-      road: horizontal ? rng.pick([-256, -192, -128, -64, 0, 64, 128]) : rng.pick([-256, -192, -128, -64, 0, 64, 128, 192, 256]),
-    });
-  }
-  const peds = [];
-  for (let i = 0; i < 18; i += 1) {
-    const mesh = makePedMesh(rng.pick(PED_COLORS), rng);
-    scene.add(mesh);
-    peds.push({
-      mesh, x: rng.range(-280, 280), z: rng.range(-280, 140),
-      heading: rng.range(0, Math.PI * 2), speed: rng.range(1.2, 2.4), phase: rng.range(0, 6),
-      targetX: rng.range(-280, 280), targetZ: rng.range(-280, 140),
-    });
-  }
-  const police = [];
-  function spawnPolice(count) {
-    while (police.length < count) {
-      const mesh = makeCarMesh(0x1a2f4a, true);
-      scene.add(mesh);
-      const idx = police.length;
-      police.push({
-        mesh, name: POLICE_NAMES[idx % POLICE_NAMES.length],
-        x: player.x + rng.range(-90, 90), z: player.z + rng.range(-90, 90),
-        heading: 0, speed: 0, health: 60, tactic: TACTICS[idx % TACTICS.length],
-      });
-    }
-    while (police.length > count) {
-      const p = police.pop();
-      scene.remove(p.mesh);
-    }
-  }
-  const rival = { mesh: makeCarMesh(0xf2b705, false), x: 120, z: -64, heading: 0, speed: 0, health: 100, active: false };
-  scene.add(rival.mesh);
-  const van = { mesh: makeCarMesh(0x8a8f98, false), x: 60, z: 120, heading: Math.PI / 2, speed: 0, health: 100, active: false, stopped: false };
-  van.mesh.scale.set(1.15, 1.15, 1.3);
-  scene.add(van.mesh);
-  const drops = [
-    { x: 200, z: -200, taken: false, mesh: null },
-    { x: -260, z: -180, taken: false, mesh: null },
-    { x: 120, z: 60, taken: false, mesh: null },
-  ];
-  for (const d of drops) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x2fae6e, emissive: 0x1a7a3a, emissiveIntensity: 0.8 }));
-    m.position.set(d.x, 0.8, d.z);
-    scene.add(m);
-    d.mesh = m;
-  }
-  const marco = { mesh: makePedMesh(0x3a7bd5, rng), x: 260, z: 100, freed: false };
-  scene.add(marco.mesh);
-  marco.mesh.visible = false;
-
-  function missionTarget() {
-    const m = MISSIONS[state.missionIndex];
-    const s = state.stageIndex;
-    switch (m.id) {
-      case 1: return s === 0 ? { x: -180, z: 100, label: 'the Comet' } : { x: -240, z: -40, label: 'Rosa\u2019s garage' };
-      case 2: return s === 0 ? { x: -192, z: 96, label: 'Solmar Casino' } : s === 1 ? { x: 0, z: 132, label: 'the boulevard' } : { x: -192, z: 96, label: 'the valet bay' };
-      case 3: { const d = drops[state.dropsCollected]; return d ? { x: d.x, z: d.z, label: 'cash drop' } : { x: 0, z: 0, label: 'home' }; }
-      case 4: return s === 0 ? { x: 46, z: 132, label: 'the roadblock' } : { x: 240, z: -240, label: 'the safe house' };
-      case 5: return { x: rival.x, z: rival.z, label: 'the rival GT' };
-      case 6: return s === 0 ? { x: van.x, z: van.z, label: 'the bank van' } : { x: 40, z: 140, label: 'the pier warehouse' };
-      case 7: return s === 0 ? { x: 260, z: 100, label: 'the impound yard' } : { x: 0, z: 0, label: 'downtown' };
-      case 8: return s === 0 ? { x: 0, z: 150, label: 'the pier' } : s === 1 ? { x: 0, z: 252, label: 'La Marea' } : { x: 0, z: 430, label: 'open water' };
-      default: return { x: 0, z: 0, label: 'Verde Cay' };
-    }
-  }
-  function setWanted(n) { state.wanted = clamp(n, 0, 5); spawnPolice(state.wanted >= 4 ? 6 : state.wanted * 2); heliMesh.visible = state.wanted >= 3; }
-
-  function startMission(index) {
-    state.missionIndex = index;
-    state.stageIndex = 0;
-    state.missionTime = 0;
-    state.dropsCollected = 0;
-    const m = MISSIONS[index];
-    state.message = `${m.title} — ${m.brief}`;
-    state.messageTimer = 6;
-    if (index === 1) setWanted(2);
-    if (index === 2) setWanted(1);
-    if (index === 3) setWanted(3);
-    if (index === 4) { setWanted(2); rival.active = true; }
-    if (index === 5) { setWanted(3); van.active = true; }
-    if (index === 6) { setWanted(2); marco.mesh.visible = true; }
-    if (index === 7) setWanted(4);
-  }
-
-  function completeMission() {
-    const m = MISSIONS[state.missionIndex];
-    state.money += m.reward;
-    state.respect += m.respect;
-    state.respectRank = state.respect >= 400 ? 'Shot Caller' : state.respect >= 250 ? 'Fixer' : state.respect >= 120 ? 'Street Boss' : 'Dock Hand';
-    audio.missionDone();
-    state.message = `Job done: ${m.title} — +$${m.reward.toLocaleString()}  +${m.respect} respect`;
-    state.messageTimer = 5;
-    save();
-    if (state.missionIndex >= MISSIONS.length - 1) {
-      state.won = true;
-      state.screen = 'won';
-      return;
-    }
-    startMission(state.missionIndex + 1);
-  }
-  function advanceStage() {
-    state.stageIndex += 1;
-    const m = MISSIONS[state.missionIndex];
-    if (state.stageIndex >= m.stages.length) { completeMission(); return; }
-    audio.pickup();
-    state.message = m.stages[state.stageIndex];
-    state.messageTimer = 4;
-  }
-
-  function save() {
+  function loadSave() {
     try {
-      window.localStorage.setItem(SAVE_KEY, JSON.stringify({
-        money: state.money, respect: state.respect, missionIndex: state.missionIndex,
-        garage: state.garage, crew: state.crew, day: state.day,
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw) return { ...defaultSave(), ...JSON.parse(raw) };
+    } catch (err) { /* fresh start */ }
+    return defaultSave();
+  }
+  function persist() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
+        money: state.money, respect: state.respect, jobIndex: state.jobIndex,
+        health: state.health, armour: state.armour, garage: state.garage,
       }));
-    } catch { /* storage off: the save lasts this visit only */ }
+    } catch (err) { /* storage unavailable */ }
   }
-  function load() {
-    try {
-      const raw = window.localStorage.getItem(SAVE_KEY);
-      if (!raw) return false;
-      const data = JSON.parse(raw);
-      state.money = data.money ?? state.money;
-      state.respect = data.respect ?? state.respect;
-      state.missionIndex = data.missionIndex ?? 0;
-      state.garage = data.garage ?? state.garage;
-      state.crew = data.crew ?? state.crew;
-      return true;
-    } catch { return false; }
+
+  function currentJob() { return JOBS[Math.min(state.jobIndex, JOBS.length - 1)]; }
+  function currentStage() {
+    const job = currentJob();
+    return job.stages[Math.min(state.stageIndex, job.stages.length - 1)];
+  }
+  function showToast(text, sub = '', secs = 3) {
+    state.toast = text; state.toastSub = sub; state.toastUntil = performance.now() / 1000 + secs;
+  }
+  function raiseWanted(amount) {
+    state.heat = Math.min(5, state.heat + amount);
+    state.wanted = Math.floor(state.heat);
+  }
+  function collide(px, pz, radius) {
+    for (const c of city.colliders) {
+      if (px > c.minX - radius && px < c.maxX + radius && pz > c.minZ - radius && pz < c.maxZ + radius) {
+        const dxl = px - (c.minX - radius), dxr = (c.maxX + radius) - px;
+        const dzl = pz - (c.minZ - radius), dzr = (c.maxZ + radius) - pz;
+        const m = Math.min(dxl, dxr, dzl, dzr);
+        if (m === dxl) px = c.minX - radius;
+        else if (m === dxr) px = c.maxX + radius;
+        else if (m === dzl) pz = c.minZ - radius;
+        else pz = c.maxZ + radius;
+        return { x: px, z: pz, hit: true };
+      }
+    }
+    return { x: px, z: pz, hit: false };
+  }
+
+  function enterVehicle(v) {
+    player.vehicle = v;
+    player.onFoot = false;
+    player.boat = !!v.isBoat;
+    player.group.visible = false;
+    if (v.trafficRef) v.trafficRef.stolen = true; // a stolen car leaves the traffic flow
+    if (v.isHero) player.condition = v.condition;
+    setEngine(0, true);
+    if (currentStage().kind === 'steal' && v.isHero) completeStage('stolen');
+    if (currentStage().kind === 'boat' && v.isBoat) completeStage('boarded');
+  }
+  function exitVehicle() {
+    if (!player.vehicle) return;
+    const v = player.vehicle;
+    player.x = v.x - Math.sin(v.heading) * 2.5;
+    player.z = v.z - Math.cos(v.heading) * 2.5;
+    player.heading = v.heading;
+    player.group.position.set(player.x, 0, player.z);
+    player.group.visible = true;
+    player.vehicle = null;
+    player.onFoot = true;
+    player.boat = false;
+    setEngine(0, false);
+  }
+
+  function completeStage(how) {
+    const job = currentJob();
+    state.stageIndex++;
+    playChime();
+    if (state.stageIndex >= job.stages.length) {
+      const bonus = Math.round(job.reward * 1.15);
+      state.money += bonus;
+      state.respect = Math.min(100, state.respect + job.respect);
+      showToast(`JOB COMPLETE — ${job.name}`, `+$${bonus.toLocaleString()} · +${job.respect} RESPECT`, 4);
+      state.jobIndex++;
+      state.stageIndex = 0;
+      state.jobTimer = 300;
+      if (state.jobIndex >= JOBS.length) {
+        state.storyDone = true;
+        showToast('THE CREW IS FREE', 'All eight jobs done. Verde Cay is yours.', 6);
+      } else {
+        state.dialogue = JOBS[state.jobIndex].line;
+      }
+      persist();
+    } else {
+      showToast('STAGE CLEAR', job.stages[state.stageIndex].text, 2.5);
+    }
   }
 
   function fireWeapon() {
-    if (state.mode !== 'foot' || state.weapon === 0) return;
-    state.shotsFired += 1;
-    audio.shot();
-    const range = state.weapon === 2 ? 45 : 32;
-    let best = null; let bestD = range;
-    for (const p of police) {
-      const d = dist2(player.x, player.z, p.x, p.z);
-      if (d < bestD) { best = p; bestD = d; }
+    if (state.weapon === 1) return; // fists: nothing to fire
+    playShot();
+    state.firedRecently = 3;
+    raiseWanted(0.4);
+    // Simple hit test: the nearest cruiser roughly ahead of the player.
+    const px = player.x, pz = player.z;
+    const fx = Math.sin(player.heading), fz = Math.cos(player.heading);
+    let best = null, bestD = 70;
+    for (const c of cruisers) {
+      if (!c.active) continue;
+      const dx = c.x - px, dz = c.z - pz;
+      const d = Math.hypot(dx, dz);
+      const dot = (dx * fx + dz * fz) / (d || 1);
+      if (d < bestD && dot > 0.86) { best = c; bestD = d; }
     }
     if (best) {
-      best.health -= state.weapon === 2 ? 34 : 20;
-      if (best.health <= 0) {
-        best.health = 60;
-        best.x = player.x + 120; best.z = player.z + 120;
-        state.money += 150;
-      }
-      if (state.wanted < 2) setWanted(2);
-    }
-  }
-
-  function collideBuildings(x, z, radius) {
-    for (const c of city.colliders) {
-      if (Math.abs(x - c.x) < c.hw + radius && Math.abs(z - c.z) < c.hd + radius) return true;
-    }
-    return false;
-  }
-
-  function update(dt, input) {
-    state.time += dt / 240;
-    if (state.time >= 24) { state.time -= 24; state.day += 1; }
-    state.missionTime += dt;
-    if (state.messageTimer > 0) state.messageTimer -= dt;
-    if (state.wanted > 0 && state.missionIndex !== 1) {
-      state.heatTimer += dt;
-      if (state.heatTimer > 45) { setWanted(state.wanted - 1); state.heatTimer = 0; }
-    }
-    const fwd = input.forward();
-    const str = input.strafe();
-    const drag = input.consumeDrag();
-    if (drag.x !== 0) state.cameraYaw -= drag.x * 0.005;
-    if (drag.y !== 0) state.cameraPitch = clamp(state.cameraPitch + drag.y * 0.003, 0.12, 0.9);
-    if (input.consume('enter')) enterExitVehicle();
-    if (input.consume('fire')) fireWeapon();
-    if (input.consume('horn')) audio.horn();
-    const slot = input.weaponSlot();
-    if (slot >= 0) state.weapon = slot;
-    if (input.consume('radio')) { state.radio = audio.nextStation(); }
-    if (state.mode === 'foot') updateFoot(dt, fwd, str, input);
-    else if (state.mode === 'car') updateCar(dt, fwd, str, input);
-    else updateBoat(dt, fwd, str);
-    updateTraffic(dt);
-    updatePeds(dt);
-    updatePolice(dt);
-    updateMission(dt);
-    updateMeshes(dt);
-    audio.setEngine(state.mode === 'car' ? Math.abs(car.speed) / CAR.maxSpeed : state.mode === 'boat' ? boat.speed / BOAT.maxSpeed : 0, state.mode === 'boat');
-    audio.setSiren(state.wanted >= 2, performance.now() / 1000);
-  }
-
-  function updateFoot(dt, fwd, str, input) {
-    const run = input.isHeld('ShiftLeft') || input.isHeld('ShiftRight');
-    const speed = run ? PLAYER.runSpeed : PLAYER.walkSpeed;
-    const yaw = state.cameraYaw;
-    const mx = Math.sin(yaw) * fwd + Math.cos(yaw) * str;
-    const mz = Math.cos(yaw) * fwd - Math.sin(yaw) * str;
-    const len = Math.hypot(mx, mz);
-    if (len > 0.01) {
-      const nx = player.x + (mx / len) * speed * dt;
-      const nz = player.z + (mz / len) * speed * dt;
-      if (!collideBuildings(nx, player.z, 0.6)) player.x = nx;
-      if (!collideBuildings(player.x, nz, 0.6)) player.z = nz;
-      player.heading = Math.atan2(mx, mz);
-      player.walkPhase += dt * speed * 1.4;
-    }
-    player.x = clamp(player.x, -315, 315);
-    player.z = clamp(player.z, -315, 148);
-    state.speedKmh = len > 0.01 ? Math.round(speed * 3.6) : 0;
-  }
-
-  function updateCar(dt, fwd, str, input) {
-    const braking = input.isHeld('Space');
-    if (braking && Math.abs(car.speed) > 20) audio.screech();
-    if (fwd > 0) car.speed += CAR.accel * dt;
-    else if (fwd < 0) car.speed -= (car.speed > 0.5 ? CAR.brake : CAR.reverse) * dt;
-    else car.speed -= Math.sign(car.speed) * 8 * dt;
-    if (braking) car.speed -= Math.sign(car.speed) * CAR.brake * dt;
-    car.speed = clamp(car.speed, -CAR.maxReverse, CAR.maxSpeed);
-    if (Math.abs(car.speed) < 0.2 && fwd === 0) car.speed = 0;
-    car.heading += str * CAR.turn * dt * clamp(Math.abs(car.speed) / 10, 0, 1) * (car.speed >= 0 ? 1 : -1);
-    const nx = car.x + Math.sin(car.heading) * car.speed * dt;
-    const nz = car.z + Math.cos(car.heading) * car.speed * dt;
-    if (collideBuildings(nx, nz, 2.2)) {
-      car.speed *= -0.25;
-      car.condition = Math.max(0, car.condition - 2);
-      audio.crash();
-    } else {
-      car.x = clamp(nx, -315, 315);
-      car.z = clamp(nz, -315, 149);
-    }
-    state.speedKmh = Math.round(Math.abs(car.speed) * 3.6);
-    state.carCondition = Math.round(car.condition);
-    player.x = car.x; player.z = car.z; player.heading = car.heading;
-  }
-
-  function updateBoat(dt, fwd, str) {
-    if (fwd > 0) boat.speed += BOAT.accel * dt;
-    else if (fwd < 0) boat.speed -= BOAT.accel * 0.6 * dt;
-    else boat.speed -= Math.sign(boat.speed) * 4 * dt;
-    boat.speed = clamp(boat.speed, -6, BOAT.maxSpeed);
-    boat.heading += str * BOAT.turn * dt * clamp(Math.abs(boat.speed) / 8, 0, 1);
-    boat.x += Math.sin(boat.heading) * boat.speed * dt;
-    boat.z += Math.cos(boat.heading) * boat.speed * dt;
-    boat.x = clamp(boat.x, -320, 320);
-    boat.z = clamp(boat.z, 150, 470);
-    state.boatSpeedKn = Math.round(Math.abs(boat.speed) * 1.94);
-    state.speedKmh = state.boatSpeedKn;
-    player.x = boat.x; player.z = boat.z; player.heading = boat.heading;
-  }
-
-  function enterExitVehicle() {
-    if (state.mode === 'foot') {
-      const dc = dist2(player.x, player.z, car.x, car.z);
-      const db = dist2(player.x, player.z, boat.x, boat.z);
-      if (dc < 5 && car.condition > 0) {
-        state.mode = 'car';
-        state.carsStolen += 1;
-        if (car.parked) { car.parked = false; state.message = 'Coral Comet RS — yours now.'; state.messageTimer = 3; }
-        audio.unlock();
-      } else if (db < 6 && state.missionIndex === 7) {
-        state.mode = 'boat';
-        boat.boarded = true;
-        audio.splash();
-        state.message = 'La Marea — full throttle to open water!';
-        state.messageTimer = 4;
-        if (state.stageIndex === 1) advanceStage();
-      }
-    } else if (state.mode === 'car') {
-      state.mode = 'foot';
-      player.x = car.x + Math.sin(car.heading + Math.PI / 2) * 3;
-      player.z = car.z + Math.cos(car.heading + Math.PI / 2) * 3;
-    } else if (state.mode === 'boat') {
-      state.mode = 'foot';
-      player.x = boat.x; player.z = Math.max(148, boat.z - 4);
-    }
-  }
-
-  function updateTraffic(dt) {
-    for (const t of traffic) {
-      if (t.horizontal) {
-        t.x += Math.sin(t.heading) * 12 * dt;
-        if (t.x > 310) t.x = -310;
-        if (t.x < -310) t.x = 310;
-        t.z = t.road;
-      } else {
-        t.z += Math.cos(t.heading) * 12 * dt;
-        if (t.z > 140) t.z = -310;
-        if (t.z < -310) t.z = 140;
-        t.x = t.road;
-      }
-      t.mesh.position.set(t.x, 0, t.z);
-      t.mesh.rotation.y = t.heading;
-    }
-  }
-
-  function updatePeds(dt) {
-    for (const p of peds) {
-      const d = dist2(p.x, p.z, p.targetX, p.targetZ);
-      if (d < 3) {
-        p.targetX = rng.range(-280, 280);
-        p.targetZ = rng.range(-280, 140);
-      }
-      const h = angleTo(p.x, p.z, p.targetX, p.targetZ);
-      p.heading = h;
-      p.x += Math.sin(h) * p.speed * dt;
-      p.z += Math.cos(h) * p.speed * dt;
-      p.phase += dt * 6;
-      p.mesh.position.set(p.x, 0, p.z);
-      p.mesh.rotation.y = h;
-      const swing = Math.sin(p.phase) * 0.5;
-      p.mesh.userData.legs[0].rotation.x = swing;
-      p.mesh.userData.legs[1].rotation.x = -swing;
-    }
-  }
-
-  function updatePolice(dt) {
-    // On land the cruisers chase the player; once the player is on the water
-    // they can only race to the pier head and watch — the helicopter keeps up.
-    const targetX = state.mode === 'boat' ? clamp(player.x, -60, 60) : player.x;
-    const targetZ = state.mode === 'boat' ? 146 : player.z;
-    for (const p of police) {
-      const d = dist2(p.x, p.z, targetX, targetZ);
-      const h = angleTo(p.x, p.z, targetX, targetZ);
-      let turn = h - p.heading;
-      while (turn > Math.PI) turn -= Math.PI * 2;
-      while (turn < -Math.PI) turn += Math.PI * 2;
-      p.heading += clamp(turn, -2.2 * dt, 2.2 * dt);
-      const speed = state.mode === 'boat' ? 26 : 24;
-      p.speed = d > 8 ? speed : speed * 0.5;
-      p.x += Math.sin(p.heading) * p.speed * dt;
-      p.z += Math.cos(p.heading) * p.speed * dt;
-      p.x = clamp(p.x, -315, 315);
-      p.z = clamp(p.z, -315, 149);
-      if (d < 4.5 && state.mode !== 'boat') {
-        if (state.armour > 0) state.armour = Math.max(0, state.armour - 12 * dt);
-        else state.health = Math.max(0, state.health - 10 * dt);
-        if (state.health <= 0) { state.over = true; state.screen = 'over'; }
-      }
-      p.mesh.position.set(p.x, 0, p.z);
-      p.mesh.rotation.y = p.heading;
-    }
-    if (heliMesh.visible) {
-      heli.heading += dt * 0.4;
-      const hx = player.x + Math.sin(heli.heading) * 26;
-      const hz = player.z + Math.cos(heli.heading) * 26;
-      heli.x += (hx - heli.x) * dt * 0.8;
-      heli.z += (hz - heli.z) * dt * 0.8;
-      heliMesh.position.set(heli.x, 52 + Math.sin(performance.now() / 700) * 2, heli.z);
-      heliMesh.rotation.y = Math.atan2(player.x - heli.x, player.z - heli.z);
-      heliMesh.userData.rotor.rotation.y += dt * 30;
-      heliMesh.userData.spot.target.position.set(player.x, 0, player.z);
-      heliMesh.userData.spot.target.updateMatrixWorld();
-    }
-    // Marine boats only chase on the water, flanking La Marea.
-    const marineOn = state.mode === 'boat';
-    for (const mb of marineBoats) {
-      mb.mesh.visible = marineOn;
-      if (!marineOn) continue;
-      const h = angleTo(mb.x, mb.z, player.x, player.z);
-      let turn = h - mb.heading;
-      while (turn > Math.PI) turn -= Math.PI * 2;
-      while (turn < -Math.PI) turn += Math.PI * 2;
-      mb.heading += clamp(turn, -2 * dt, 2 * dt);
-      const d = dist2(mb.x, mb.z, player.x, player.z);
-      const speed = d > 20 ? 28 : 20;
-      mb.x += Math.sin(mb.heading) * speed * dt;
-      mb.z += Math.cos(mb.heading) * speed * dt;
-      mb.mesh.position.set(mb.x, 0.4, mb.z);
-      mb.mesh.rotation.y = mb.heading;
-    }
-    if (rival.active) {
-      rival.heading = Math.sin(performance.now() / 9000) * 0.6 + Math.PI / 2;
-      rival.x += Math.sin(rival.heading) * 18 * dt;
-      rival.z = -64 + Math.sin(performance.now() / 4000) * 8;
-      rival.mesh.position.set(rival.x, 0, rival.z);
-      rival.mesh.rotation.y = rival.heading;
-      if (state.mode === 'car' && dist2(car.x, car.z, rival.x, rival.z) < 5) {
-        rival.health -= 40 * dt;
-        car.condition = Math.max(0, car.condition - 6 * dt);
-        if (rival.health <= 0) { rival.active = false; rival.mesh.visible = false; advanceStage(); }
-      }
-    }
-    if (van.active && !van.stopped) {
-      van.x += Math.sin(van.heading) * 6 * dt;
-      van.mesh.position.set(van.x, 0, van.z);
-      van.mesh.rotation.y = van.heading;
-      if (state.mode === 'car' && dist2(car.x, car.z, van.x, van.z) < 6) {
-        van.stopped = true;
-        state.message = 'Van stopped. Take it to the pier warehouse.';
-        state.messageTimer = 4;
-        advanceStage();
+      best.hp--;
+      if (best.hp <= 0) {
+        best.active = false;
+        best.mesh.group.visible = false;
+        const ex = makeExplosion(scene, best.x, best.z);
+        explosions.push(ex);
+        showToast('CRUISER DOWN', 'The VCPD will send another.', 2.5);
+        raiseWanted(0.6);
       }
     }
   }
 
-  function updateMission(dt) {
-    const m = MISSIONS[state.missionIndex];
-    const target = missionTarget();
-    const d = dist2(player.x, player.z, target.x, target.z);
-    marker.position.set(target.x, 0, target.z);
-    marker.userData.diamond.rotation.y += dt * 2;
-    marker.userData.diamond.position.y = 4 + Math.sin(performance.now() / 300) * 0.5;
-    marker.visible = state.screen === 'play';
-    switch (m.id) {
-      case 1:
-        if (state.stageIndex === 0 && d < 6 && state.mode === 'foot') advanceStage();
-        else if (state.stageIndex === 1 && d < 8 && state.mode === 'car') advanceStage();
-        break;
-      case 2:
-        if (state.stageIndex === 0 && d < 8 && state.mode === 'car') advanceStage();
-        else if (state.stageIndex === 1 && state.wanted === 0) advanceStage();
-        else if (state.stageIndex === 2 && d < 8 && state.mode === 'car') advanceStage();
-        break;
-      case 3:
-        for (const drop of drops) {
-          if (!drop.taken && dist2(player.x, player.z, drop.x, drop.z) < 5) {
-            drop.taken = true;
-            drop.mesh.visible = false;
-            state.dropsCollected += 1;
-            state.money += 1200;
-            audio.pickup();
-            if (state.dropsCollected >= 3) completeMission();
-            else advanceStage();
-          }
-        }
-        break;
-      case 4:
-        if (state.stageIndex === 0 && d < 30) {
-          for (const p of police) {
-            if (state.mode === 'car' && dist2(car.x, car.z, p.x, p.z) < 5) p.health -= 30 * dt;
-          }
-          if (police.length > 0 && police.every((p) => p.health <= 20)) advanceStage();
-        } else if (state.stageIndex === 1 && d < 10) advanceStage();
-        break;
-      case 6:
-        if (state.stageIndex === 1 && d < 10) advanceStage();
-        else if (state.stageIndex === 2 && state.wanted === 0) advanceStage();
-        break;
-      case 7:
-        if (state.stageIndex === 0 && d < 6) { marco.freed = true; advanceStage(); }
-        else if (state.stageIndex === 1 && state.mode === 'car') advanceStage();
-        break;
-      case 8:
-        if (state.stageIndex === 0 && d < 8) advanceStage();
-        else if (state.stageIndex === 1 && state.mode === 'boat') advanceStage();
-        else if (state.stageIndex === 2 && boat.z > CITY.waterZ) completeMission();
-        break;
-      default:
-        break;
-    }
-  }
+  function update(dt, t) {
+    const now = performance.now() / 1000;
+    state.clockMin = (state.clockMin + dt * 0.5) % 1440;
+    if (state.firedRecently > 0) state.firedRecently -= dt;
 
-  function updateMeshes(dt) {
-    playerMesh.visible = state.mode === 'foot';
-    // The roadblock blast flickers while it burns.
-    if (blast.visible) {
-      const f = 1 + Math.sin(performance.now() / 90) * 0.07 + Math.sin(performance.now() / 47) * 0.04;
-      blastFire.scale.setScalar(f);
-      blastCore.scale.setScalar(1 + Math.sin(performance.now() / 60) * 0.12);
-      blastLight.intensity = 200 + Math.sin(performance.now() / 80) * 40;
-    }
-    playerMesh.position.set(player.x, 0, player.z);
-    playerMesh.rotation.y = player.heading;
-    const swing = Math.sin(player.walkPhase) * 0.5;
-    playerMesh.userData.legs[0].rotation.x = swing;
-    playerMesh.userData.legs[1].rotation.x = -swing;
-    carMesh.position.set(car.x, 0, car.z);
-    carMesh.rotation.y = car.heading;
-    boatMesh.position.set(boat.x, 0.4 + Math.sin(performance.now() / 500) * 0.12, boat.z);
-    boatMesh.rotation.y = boat.heading;
-    boatMesh.rotation.z = Math.sin(performance.now() / 600) * 0.03;
-    // Wake grows and fades with boat speed; marine boats get the same treatment.
-    const wakeScale = state.mode === 'boat' ? Math.min(1, Math.abs(boat.speed) / 20) : 0;
-    boatMesh.userData.wakeMat.opacity = wakeScale * 0.22;
-    boatMesh.userData.wake.scale.set(1 + wakeScale * 0.3, 1 + wakeScale * 0.4, 1);
-    for (const mb of marineBoats) {
-      if (mb.mesh.visible && mb.mesh.userData.wakeMat) mb.mesh.userData.wakeMat.opacity = 0.35;
-    }
-    if (heliMesh.visible && heliMesh.userData.tailRotor) heliMesh.userData.tailRotor.rotation.z += dt * 40;
-    for (const p of peds) {
-      if (p.mesh.userData.arms) {
-        const swing = Math.sin(p.phase) * 0.4;
-        p.mesh.userData.arms[0].rotation.x = -swing;
-        p.mesh.userData.arms[1].rotation.x = swing;
+    updateTraffic(traffic, dt);
+    updatePedestrians(peds, dt, t, { x: player.x, z: player.z }, state.wanted);
+    city.updateSea(t);
+    city.beaconTarget.position.set(
+      Math.cos(t * 0.25) * 120, 0, Math.sin(t * 0.25) * 120);
+    for (let i = explosions.length - 1; i >= 0; i--) {
+      tickExplosion(explosions[i], dt);
+      if (explosions[i].age > 5) {
+        scene.remove(explosions[i].group);
+        explosions.splice(i, 1);
       }
     }
-    for (const drop of drops) {
-      if (drop.mesh.visible) drop.mesh.rotation.y += dt;
-    }
-  }
 
-  // The judged cover is a car chase, never the boat: Job 4/8 "Harbor Lights",
-  // the Coral Comet RS at full throttle east down the palm-lined boulevard at
-  // 4 stars, a VCPD roadblock and a blast ahead, Air-1 overhead. The frame is
-  // staged frozen on a clear stretch of the boulevard (x -47..55, per the
-  // colliders) — the car does not drive in the sim, so it never meets a
-  // building; restageShot sets the speedo to 165 km/h for the frame.
-  function stageCover() {
-    state.screen = 'play';
-    state.missionIndex = 3;
-    state.stageIndex = 0;
-    state.mode = 'car';
-    car.x = 0; car.z = 132; car.heading = Math.PI / 2; car.speed = 0;
-    car.condition = 86; car.parked = false;
-    player.x = car.x; player.z = car.z; player.heading = car.heading;
-    state.carName = 'Coral Comet RS';
-    setWanted(4);
-    state.missionTime = 96;
-    state.money = 38250;
-    state.health = 82; state.armour = 64;
-    state.respect = 240;
-    state.respectRank = 'Street Boss';
-    state.carCondition = 86;
-    state.speedKmh = 0;
-    state.boatSpeedKn = 0;
-    // Low close rear chase camera, looking east down the boulevard: the
-    // camera sits right behind the Comet (5 units back, 2.6 up, looking at
-    // 1.0 up) so the red car fills ~30% of the frame width, large in the
-    // centre, instead of a small shape seen from high behind.
-    state.cameraYaw = Math.PI / 2;
-    state.cameraPitch = 0.2;
-    state.shotDist = 5.0;
-    state.shotHeight = 2.6;
-    state.shotLookY = 1.0;
-    state.message = 'Roadblock ahead — ram it and free Ana!';
-    state.messageTimer = 6;
-    // Traffic on the boulevard: one car ahead in the same lane, one oncoming.
-    traffic[0].x = -20; traffic[0].z = 136; traffic[0].road = 136; traffic[0].horizontal = true; traffic[0].heading = Math.PI / 2;
-    traffic[1].x = 10; traffic[1].z = 128; traffic[1].road = 128; traffic[1].horizontal = true; traffic[1].heading = -Math.PI / 2;
-    traffic[2].x = -30; traffic[2].z = 132; traffic[2].road = 132; traffic[2].horizontal = true; traffic[2].heading = Math.PI / 2;
-    // Two pedestrians on the boulevard sidewalks, watching the chase.
-    peds[0].x = -20; peds[0].z = 120; peds[0].targetX = 20; peds[0].targetZ = 120;
-    peds[1].x = -10; peds[1].z = 145; peds[1].targetX = 30; peds[1].targetZ = 145;
-    // The blast burns at the roadblock, ahead of the car — close enough to
-    // read at thumbnail size, with the smoke puffs rising above it.
-    blast.position.set(car.x + 24, 0, 130);
-    blast.scale.setScalar(1.15);
-    blast.visible = true;
-    heli.x = car.x + 18; heli.z = car.z + 12;
-    heliMesh.visible = true;
-    heliMesh.position.set(heli.x, 9, heli.z);
-  }
-  // The on-foot shot is a theft in progress, not a standing figure: Job 1/8,
-  // the player mid-stride toward the Coral Comet with the Palm Pistol's
-  // successor — the Tide SMG — selected, three stars up, VCPD cruisers
-  // converging on the boulevard and Air-1 overhead.
-  // The on-foot shot is a car theft in progress, never a standing figure:
-  // Job 1/8 "First Light", the player mid-stride on the boulevard toward the
-  // Coral Comet RS, Tide SMG out, 3 wanted stars, VCPD cruisers closing in
-  // from both directions and Air-1 overhead, the lighthouse down the road.
-  function stageFoot() {
-    state.screen = 'play';
-    state.missionIndex = 0;
-    state.stageIndex = 0;
-    state.mode = 'foot';
-    player.x = -166; player.z = 126; player.heading = 1.1;
-    player.walkPhase = 1.2;
-    car.x = -156; car.z = 131; car.heading = 1.1;
-    state.weapon = 2;
-    // Hide the toast for this shot so the hero car reads in the centre frame.
-    state.message = '';
-    state.messageTimer = 0;
-    // Put the hero car and two traffic cars in frame on the boulevard.
-    traffic[0].x = -140; traffic[0].z = 136; traffic[0].road = 136; traffic[0].horizontal = true; traffic[0].heading = Math.PI / 2;
-    traffic[1].x = -212; traffic[1].z = 136; traffic[1].road = 136; traffic[1].horizontal = true; traffic[1].heading = -Math.PI / 2;
-    traffic[2].x = -100; traffic[2].z = 136; traffic[2].road = 136; traffic[2].horizontal = true; traffic[2].heading = Math.PI / 2;
-    setWanted(3);
-    heli.x = player.x + 18; heli.z = player.z - 22;
-    heliMesh.visible = true;
-    heliMesh.position.set(heli.x, 18, heli.z);
-    state.money = 21780;
-    state.health = 100; state.armour = 55;
-    state.cameraYaw = 1.1;
-    state.cameraPitch = 0.22;
-  }
-  function stageMap() {
-    state.screen = 'map';
-    state.missionIndex = 4;
-    state.stageIndex = 0;
-    state.money = 38250;
-    state.respect = 240;
-    // Two stars on the stats panel so the map shot reads as mid-chase, not
-    // a quiet afternoon: the VCPD dots show on the city behind the panel.
-    setWanted(2);
-  }
-  function stageMenu() {
-    state.screen = 'title';
-    state.missionIndex = 0;
-    state.money = 21780;
-    // Fresh start on the title screen: a new player, Dock Hand rank, no heat.
-    state.respect = 165;
-    state.respectRank = 'Dock Hand';
-    state.wanted = 0;
-  }
-
-  // After the screenshot sim runs, place every moving unit precisely for the
-  // frame — the sim's chase logic would otherwise scatter them. All positions
-  // below are relative to the hero car / player as they stand after the sim,
-  // so the frame reads the same whatever the sim did.
-  function restageShot(name) {
-    if (name === 'cover') {
-      const cx = car.x; const cz = car.z;
-      // The speedo reads full throttle for the frozen chase frame.
-      state.speedKmh = 165;
-      // Re-assert the close cover camera after the sim (the sim never moves
-      // it, but the frame must not depend on that).
-      state.shotDist = 5.0;
-      state.shotHeight = 2.6;
-      state.shotLookY = 1.0;
-      // Cruisers flanking the Comet left and right, one in the centre lane
-      // right ahead, two angled as the roadblock, one oncoming past it —
-      // all close enough to read, none behind the camera.
-      const chase = [
-        { x: cx + 5, z: 124, h: Math.PI / 2 },
-        { x: cx + 8, z: 140, h: Math.PI / 2 },
-        { x: cx + 11, z: 132, h: Math.PI / 2 },
-        { x: cx + 20, z: 126, h: -Math.PI / 2 + 0.35 },
-        { x: cx + 24, z: 139, h: -Math.PI / 2 - 0.35 },
-        { x: cx + 30, z: 128, h: -Math.PI / 2 },
-      ];
-      police.forEach((p, i) => {
-        const c = chase[i % chase.length];
-        p.x = c.x; p.z = c.z; p.heading = c.h;
-        p.mesh.position.set(p.x, 0, p.z);
-        p.mesh.rotation.y = p.heading;
-      });
-      // Air-1 low over the beach, south of the road: in frame near the top,
-      // and the searchlight cone slants down onto the road ahead.
-      heli.x = cx + 18; heli.z = cz + 12;
-      heliMesh.position.set(heli.x, 9, heli.z);
-      heliMesh.scale.setScalar(1.5);
-      heliMesh.rotation.y = Math.atan2(player.x - heli.x, player.z - heli.z);
-      heliMesh.userData.spot.target.position.set(player.x, 0, player.z);
-      heliMesh.userData.spot.target.updateMatrixWorld();
-      // The blast burns at the roadblock, just past the two angled cruisers,
-      // big enough to read at thumbnail size.
-      blast.position.set(cx + 24, 0, 130);
-      blast.scale.setScalar(1.15);
-      blast.visible = true;
-      // Traffic: one car ahead in the far lane, one oncoming, one passing.
-      const cars = [
-        { x: cx + 36, z: 136, h: Math.PI / 2 },
-        { x: cx + 42, z: 128, h: -Math.PI / 2 },
-        { x: cx + 30, z: 136, h: -Math.PI / 2 },
-      ];
-      cars.forEach((c, i) => {
-        const t = traffic[i];
-        t.x = c.x; t.z = c.z; t.heading = c.h;
-        t.mesh.position.set(t.x, 0, t.z);
-        t.mesh.rotation.y = t.heading;
-      });
-      for (const mb of marineBoats) mb.mesh.visible = false;
+    if (state.mode !== 'play') {
+      setEngine(0, false);
+      setSiren(false);
       return;
     }
-    if (name === 'foot') {
-      // Three cruisers converging on the player, three more up the boulevard,
-      // Air-1 overhead: the theft is already a chase.
-      const chase = [
-        { x: -148, z: 128, h: -Math.PI / 2 },
-        { x: -170, z: 136, h: Math.PI / 2 },
-        { x: -152, z: 108, h: Math.PI },
-        { x: -104, z: 132, h: -Math.PI / 2 },
-        { x: -210, z: 128, h: Math.PI / 2 },
-        { x: -135, z: 145, h: 0 },
-      ];
-      police.forEach((p, i) => {
-        const c = chase[i % chase.length];
-        p.x = c.x; p.z = c.z; p.heading = c.h;
-        p.mesh.position.set(p.x, 0, p.z);
-        p.mesh.rotation.y = p.heading;
-      });
-      // Air-1 low over the beach ahead of the player, searchlight on the theft.
-      heli.x = player.x + 25; heli.z = player.z + 20;
-      heliMesh.position.set(heli.x, 12, heli.z);
-      heliMesh.scale.setScalar(1.3);
-      heliMesh.rotation.y = Math.atan2(player.x - heli.x, player.z - heli.z);
-      heliMesh.userData.spot.target.position.set(player.x, 0, player.z);
-      heliMesh.userData.spot.target.updateMatrixWorld();
+
+    // --- Job timer ------------------------------------------------------------
+    if (!state.storyDone) {
+      state.jobTimer -= dt;
+      if (state.jobTimer <= 0) {
+        state.jobTimer = 300;
+        state.stageIndex = 0;
+        state.respect = Math.max(0, state.respect - 4);
+        showToast('JOB FAILED — TIME UP', 'The crew covers for you. Try it again.', 3.5);
+      }
+    }
+
+    // --- Wanted decay -----------------------------------------------------------
+    // Kiki's lookout ability: the trail goes cold twice as fast when no unit sees you.
+    const decay = (state.wanted > 0 && !anyPoliceNear()) ? dt * 0.24 : dt * 0.02;
+    state.heat = Math.max(0, state.heat - decay);
+    state.wanted = Math.floor(state.heat);
+
+    // --- Movement ----------------------------------------------------------------
+    const fwd = input.axis('KeyS', 'KeyW');
+    const strafe = input.axis('KeyA', 'KeyD');
+    if (player.onFoot) {
+      const run = input.held('ShiftLeft') || input.held('ShiftRight');
+      const speed = run ? 9 : 4.5;
+      const mx = Math.sin(player.heading) * fwd + Math.cos(player.heading) * strafe;
+      const mz = Math.cos(player.heading) * fwd - Math.sin(player.heading) * strafe;
+      const len = Math.hypot(mx, mz) || 1;
+      player.x += (mx / len) * speed * dt * (fwd || strafe ? 1 : 0);
+      player.z += (mz / len) * speed * dt * (fwd || strafe ? 1 : 0);
+      const res = collide(player.x, player.z, 0.6);
+      player.x = Math.max(-228, Math.min(WORLD.seaX - 4, res.x));
+      player.z = Math.max(-228, Math.min(228, res.z));
+      player.group.position.set(player.x, Math.abs(Math.sin(t * 6)) * (fwd || strafe ? 0.05 : 0), player.z);
+      if (fwd || strafe) player.group.rotation.y = Math.atan2(mx, mz);
+      // E: enter the nearest vehicle.
+      if (input.pressed('KeyE')) {
+        const v = nearestVehicle(6);
+        if (v) {
+          enterVehicle(v);
+          if (!v.isHero && !v.isBoat) { raiseWanted(1); showToast('CAR STOLEN', 'The VCPD has your description.', 2.5); }
+        }
+      }
+    } else {
+      const v = player.vehicle;
+      const boost = input.held('ShiftLeft') && v.isHero ? 1.35 : 1;
+      const top = (v.isBoat ? 34 : v.isHero ? HERO_CAR.topSpeed : 46) * boost;
+      if (fwd > 0) v.speed = Math.min(top, v.speed + 26 * dt);
+      else if (fwd < 0) v.speed = Math.max(-12, v.speed - 18 * dt);
+      else v.speed *= Math.max(0, 1 - 0.9 * dt);
+      if (input.held('Space')) v.speed *= Math.max(0, 1 - 3.2 * dt);
+      const steer = strafe * (v.speed >= 0 ? 1 : -1);
+      v.heading += steer * 1.9 * dt * Math.min(1, Math.abs(v.speed) / 12);
+      const nx = v.x + Math.sin(v.heading) * v.speed * dt;
+      const nz = v.z + Math.cos(v.heading) * v.speed * dt;
+      if (v.isBoat) {
+        v.x = Math.max(WORLD.seaX - 2, Math.min(330, nx));
+        v.z = Math.max(-240, Math.min(240, nz));
+      } else {
+        const res = collide(nx, nz, 1.6);
+        if (res.hit && Math.abs(v.speed) > 8) {
+          v.condition = Math.max(0, v.condition - 4);
+          state.health = Math.max(0, state.health - 2);
+          v.speed *= 0.4;
+        }
+        v.x = Math.max(-228, Math.min(WORLD.seaX - 6, res.x));
+        v.z = Math.max(-228, Math.min(228, res.z));
+      }
+      v.mesh.group.position.set(v.x, v.isBoat ? 0.2 + Math.sin(t * 1.4) * 0.08 : 0, v.z);
+      v.mesh.group.rotation.y = v.heading;
+      player.x = v.x; player.z = v.z; player.heading = v.heading;
+      player.condition = v.condition;
+      setEngine(Math.abs(v.speed) / top, true);
+      if (input.pressed('KeyE') && Math.abs(v.speed) < 3) exitVehicle();
+      if (input.pressed('KeyF')) fireWeapon();
+      // Wake visibility follows boat speed.
+      if (v.isBoat) v.mesh.group.userData.wakeMat.opacity = Math.min(0.6, Math.abs(v.speed) * 0.02);
+    }
+    if (player.onFoot && input.pressed('KeyF')) fireWeapon();
+
+    // --- Weapon switching ---------------------------------------------------------
+    if (input.pressed('Digit1')) state.weapon = 1;
+    if (input.pressed('Digit2')) state.weapon = 2;
+    if (input.pressed('Digit3')) state.weapon = 3;
+
+    // --- Job stages --------------------------------------------------------------
+    if (!state.storyDone) {
+      const stage = currentStage();
+      const d = Math.hypot(player.x - stage.x, player.z - stage.z);
+      marker.position.set(stage.x, 0, stage.z);
+      marker.visible = true;
+      diamond.rotation.y = t * 1.5;
+      diamond.position.y = 6 + Math.sin(t * 2) * 0.8;
+      if (stage.kind === 'goto' && d < 8) completeStage('arrived');
+      else if (stage.kind === 'chase' && d < 10) completeStage('through');
+      else if (stage.kind === 'boat' && player.boat && d < 12) completeStage('sailed');
+      else if (stage.kind === 'steal' && player.vehicle && player.vehicle.isHero) completeStage('stolen');
+    } else {
+      marker.visible = false;
+    }
+
+    // --- Police response ------------------------------------------------------------
+    const want = state.wanted;
+    let activeCount = 0;
+    for (const c of cruisers) if (c.active) activeCount++;
+    const targetCruisers = Math.min(4, want);
+    if (activeCount < targetCruisers) {
+      const c = cruisers.find((x) => !x.active);
+      if (c) {
+        const a = Math.random() * Math.PI * 2;
+        c.x = player.x + Math.sin(a) * 55;
+        c.z = player.z + Math.cos(a) * 55;
+        c.x = Math.max(-220, Math.min(WORLD.seaX - 8, c.x));
+        c.z = Math.max(-220, Math.min(220, c.z));
+        c.heading = Math.atan2(player.x - c.x, player.z - c.z);
+        c.speed = 0; c.hp = 3; c.active = true;
+        c.mesh.group.visible = true;
+      }
+    }
+    if (want === 0) {
+      for (const c of cruisers) { c.active = false; c.mesh.group.visible = false; }
+    }
+    for (const c of cruisers) {
+      if (!c.active) continue;
+      const dx = player.x - c.x, dz = player.z - c.z;
+      const d = Math.hypot(dx, dz);
+      const wantHeading = Math.atan2(dx, dz);
+      let diff = wantHeading - c.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      c.heading += Math.max(-2.6 * dt, Math.min(2.6 * dt, diff));
+      c.speed = Math.min(40 + want * 3, c.speed + 22 * dt);
+      if (d < 4.5) { // ramming the player
+        c.speed *= 0.5;
+        if (player.vehicle) {
+          player.vehicle.condition = Math.max(0, player.vehicle.condition - 1.5);
+          player.vehicle.speed *= 0.85;
+        } else {
+          state.health = Math.max(0, state.health - 6 * dt);
+        }
+      }
+      c.x += Math.sin(c.heading) * c.speed * dt;
+      c.z += Math.cos(c.heading) * c.speed * dt;
+      const res = collide(c.x, c.z, 1.6);
+      c.x = Math.max(-228, Math.min(WORLD.seaX - 6, res.x));
+      c.z = Math.max(-228, Math.min(228, res.z));
+      c.mesh.group.position.set(c.x, 0, c.z);
+      c.mesh.group.rotation.y = c.heading;
+      if (c.mesh.group.userData.lightBar) {
+        const on = Math.floor(t * 6) % 2 === 0;
+        c.mesh.group.userData.lightBar.red.material.color.setHex(on ? 0xff2222 : 0x551111);
+        c.mesh.group.userData.lightBar.blue.material.color.setHex(on ? 0x112266 : 0x2266ff);
+      }
+    }
+    // Helicopter at 3+ stars.
+    heliActive = want >= 3;
+    heli.group.visible = heliActive;
+    if (heliActive) {
+      heli.group.position.set(player.x + 14, 42 + Math.sin(t * 0.8) * 2, player.z - 10);
+      heli.rotor.rotation.y += dt * 22;
+      const dx = player.x - heli.group.position.x, dz = player.z - heli.group.position.z;
+      heli.group.userData.spot.target.position.set(dx, -42, dz);
+      heli.group.userData.spot.target.updateMatrixWorld();
+      // The light cone hangs straight down from the heli; the spotlight itself
+      // tracks the player.
+    }
+    // Marine boats chase a player boat; otherwise they patrol.
+    for (const m of marine) {
+      if (player.boat && want >= 1) {
+        const dx = player.x - m.x, dz = player.z - m.z;
+        const d = Math.hypot(dx, dz);
+        m.heading = Math.atan2(dx, dz);
+        m.speed = Math.min(30, m.speed + 16 * dt);
+        m.x += Math.sin(m.heading) * m.speed * dt;
+        m.z += Math.cos(m.heading) * m.speed * dt;
+        m.x = Math.max(WORLD.seaX - 2, Math.min(330, m.x));
+        m.z = Math.max(-240, Math.min(240, m.z));
+      } else {
+        m.speed = 8;
+        m.z += Math.sin(t * 0.2 + m.patrol) * 0.2;
+        m.x = WORLD.seaX + 55 + Math.sin(t * 0.1 + m.patrol) * 10;
+        m.heading = Math.PI / 2;
+      }
+      m.mesh.group.position.set(m.x, 0.2 + Math.sin(t * 1.2 + m.patrol) * 0.08, m.z);
+      m.mesh.group.rotation.y = m.heading;
+    }
+    setSiren(want >= 1);
+
+    // --- Autosave ------------------------------------------------------------------
+    saveTimer += dt;
+    if (saveTimer > 10) { saveTimer = 0; persist(); }
+
+    // --- Health ---------------------------------------------------------------------
+    if (state.health <= 0) {
+      state.health = 100;
+      state.money = Math.max(0, state.money - 500);
+      raiseWanted(-1);
+      player.x = 96; player.z = 132;
+      if (player.vehicle) exitVehicle();
+      player.group.position.set(player.x, 0, player.z);
+      showToast('BUSTED — HOSPITAL BILL', '-$500 · The crew patched you up.', 4);
     }
   }
 
-  startMission(0);
+  function anyPoliceNear() {
+    for (const c of cruisers) {
+      if (c.active && Math.hypot(c.x - player.x, c.z - player.z) < 45) return true;
+    }
+    return heli.group.visible;
+  }
+
+  function nearestVehicle(maxD) {
+    const cands = [heroCar, playerBoat];
+    for (const tc of traffic) cands.push({ x: tc.x, z: tc.z, mesh: tc, name: 'Street Car', condition: 80, heading: tc.group.rotation.y, speed: 0, trafficRef: tc });
+    let best = null, bestD = maxD;
+    for (const v of cands) {
+      const d = Math.hypot(v.x - player.x, v.z - player.z);
+      if (d < bestD) { best = v; bestD = d; }
+    }
+    if (best && best.mesh && best.mesh.group && !best.isHero && !best.isBoat && !best.mesh.group.visible) return null;
+    return best;
+  }
+
+  function dispatchUnits() {
+    const units = [];
+    let i = 0;
+    for (const c of cruisers) {
+      if (!c.active) continue;
+      const d = Math.hypot(c.x - player.x, c.z - player.z);
+      const tac = d < 6 ? 'RAMMING' : d < 25 ? 'PURSUIT' : (i % 2 === 0 ? 'FLANKING' : 'ROADBLOCK');
+      units.push({ name: c.name, dist: Math.round(d), tac });
+      i++;
+    }
+    if (heli.group.visible) units.push({ name: 'AIR-1', dist: 42, tac: 'SPOTLIGHT' });
+    if (player.boat && state.wanted >= 1) {
+      units.push({ name: 'MARINE-1', dist: Math.round(Math.hypot(marine[0].x - player.x, marine[0].z - player.z)), tac: 'PURSUIT' });
+      units.push({ name: 'MARINE-2', dist: Math.round(Math.hypot(marine[1].x - player.x, marine[1].z - player.z)), tac: 'FLANKING' });
+    }
+    if (state.firedRecently > 0 && units.length) units[0].tac = 'FIRING';
+    if (!units.length) units.push({ name: 'VCPD DISPATCH', dist: 0, tac: 'ALL QUIET' });
+    return units.slice(0, 6);
+  }
+
+  function speedKmh() {
+    if (!player.vehicle) return 0;
+    return Math.abs(player.vehicle.speed) * 3.6;
+  }
+
   return {
-    state, player, car, boat, heli, traffic, peds, police, rival, van, drops, marco, scene, marineBoats, blast,
-    cityBuildings: city.buildings,
-    update, startMission, completeMission, advanceStage, setWanted, save, load,
-    missionTarget, stageCover, stageFoot, stageMap, stageMenu, fireWeapon, restageShot,
+    state, player, heroCar, playerBoat, traffic, peds, cruisers, marine, heli,
+    update, persist, showToast, raiseWanted, completeStage, enterVehicle, exitVehicle,
+    currentJob, currentStage,
+    speedKmh,
+    speedKnots() { return player.boat ? speedKmh() * KNOTS : speedKmh(); },
+    dispatchUnits,
+    vehicleName() {
+      if (!player.vehicle) return 'ON FOOT';
+      return player.vehicle.name;
+    },
   };
 }
