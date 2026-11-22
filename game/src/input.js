@@ -1,21 +1,41 @@
-// Verde Cay — keyboard input. Tracks held keys and edge-triggered presses
-// (keys the game consumes once per press, like E, M, P, Q and 1-3).
-const HELD = new Set();
-const PRESSED = new Set();
+// Keyboard input: a live set of held keys plus edge-triggered "just pressed"
+// checks, so one tap of E or M does exactly one thing.
+export class Input {
+  constructor() {
+    this.held = new Set();
+    this.pressed = new Set();
+    this.onFirstKey = null;
+    window.addEventListener('keydown', (e) => {
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) {
+        e.preventDefault();
+      }
+      if (!this.held.has(e.code)) {
+        this.pressed.add(e.code);
+        if (this.onFirstKey) {
+          const cb = this.onFirstKey;
+          this.onFirstKey = null;
+          cb();
+        }
+      }
+      this.held.add(e.code);
+    });
+    window.addEventListener('keyup', (e) => this.held.delete(e.code));
+    window.addEventListener('blur', () => {
+      this.held.clear();
+      this.pressed.clear();
+    });
+  }
 
-export function initInput() {
-  window.addEventListener('keydown', (e) => {
-    if (e.repeat) return;
-    HELD.add(e.code);
-    PRESSED.add(e.code);
-  });
-  window.addEventListener('keyup', (e) => HELD.delete(e.code));
-  window.addEventListener('blur', () => { HELD.clear(); });
+  down(...codes) {
+    return codes.some((c) => this.held.has(c));
+  }
+
+  justPressed(...codes) {
+    return codes.some((c) => this.pressed.has(c));
+  }
+
+  // Call at the end of each frame so edges last exactly one frame.
+  endFrame() {
+    this.pressed.clear();
+  }
 }
-
-export function held(code) { return HELD.has(code); }
-export function axis(neg, pos) { return (HELD.has(pos) ? 1 : 0) - (HELD.has(neg) ? 1 : 0); }
-
-// True once for the frame after the key went down, then cleared by endFrame.
-export function pressed(code) { return PRESSED.has(code); }
-export function endFrame() { PRESSED.clear(); }

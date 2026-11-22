@@ -1,42 +1,31 @@
-// VERDE CAY — entrypoint for the make.fun "Make GTA 6" bounty (gta6-01).
-// Node 22, standard library only. It hands the game in: the static files under
-// game/ and the four screenshots go to the output directory, and the dossier
-// the judge reads is written there with the vendored make.fun library.
-//
-// Run it locally with an output folder of your own:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-
+// VERDE CAY: hands the game in. This program copies the static game under
+// game/ and the screenshots under screenshots/ into the output directory and
+// writes the dossier the judge reads, using the kit's vendored library.
+// Node 22, standard library only; no network, no install.
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = fileURLToPath(new URL('.', import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function copyGame() {
-  mkdirSync(outDir, { recursive: true });
-  cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
-  const shotsOut = join(outDir, 'screenshots');
-  mkdirSync(shotsOut, { recursive: true });
-  const shotsIn = join(repoRoot, 'screenshots');
-  if (existsSync(shotsIn)) cpSync(shotsIn, shotsOut, { recursive: true });
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) {
+  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 }
 
-function writeDossier() {
-  // The scorer's caps, from the kit's gate reference: the dossier text is
-  // capped at 160 KiB, screenshots at 4 files of 256 KiB, game/ at 993 files
-  // and 48 MiB. An entry over any of them is refused, so the check refuses
-  // here first rather than at the gate.
-  const dossier = buildDossier(outDir, {
+// The scorer's caps: an entry is refused above them, so refuse here first
+// rather than hand in something the scorer would refuse.
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
     text_max_bytes: 163840,
     screenshots: { max: 4, max_bytes: 262144 },
     game_max_files: 993,
     game_max_bytes: 50331648,
     game_path_max_bytes: 1000,
-  });
-  writeFileSync(join(outDir, 'dossier.json'), dossier);
-}
-
-copyGame();
-writeDossier();
+  }),
+);

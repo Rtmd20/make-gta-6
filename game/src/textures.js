@@ -1,201 +1,265 @@
-// Verde Cay — procedural canvas textures. Every texture in the game is drawn
-// here at load time from plain 2D canvas calls; no image files are shipped.
+// Procedural canvas textures: every surface in Verde Cay is painted in code,
+// no image files. Each texture is drawn once at load and reused everywhere.
 import * as THREE from 'three';
+import { RNG } from './random.js';
 
-function makeCanvas(w, h) {
+function canvas(w, h) {
   const c = document.createElement('canvas');
-  c.width = w; c.height = h;
+  c.width = w;
+  c.height = h;
   return [c, c.getContext('2d')];
 }
 
-function toTexture(canvas, repeatX = 1, repeatY = 1) {
-  const t = new THREE.CanvasTexture(canvas);
+function tex(c, repeatX = 1, repeatY = 1) {
+  const t = new THREE.CanvasTexture(c);
   t.wrapS = THREE.RepeatWrapping;
   t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(repeatX, repeatY);
-  t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
+  t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
-function speckle(ctx, w, h, n, colours, size = 2) {
-  for (let i = 0; i < n; i++) {
-    ctx.fillStyle = colours[(Math.random() * colours.length) | 0];
-    ctx.globalAlpha = 0.12 + Math.random() * 0.25;
-    ctx.fillRect(Math.random() * w, Math.random() * h, size, size);
+export function makeTextures() {
+  const rng = new RNG(20261122);
+  const out = {};
+
+  // --- Asphalt with a worn centre line and speckle -----------------------
+  {
+    const [c, g] = canvas(256, 256);
+    g.fillStyle = '#33333a';
+    g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2600; i++) {
+      const v = rng.int(38, 74);
+      g.fillStyle = `rgb(${v},${v},${v + 6})`;
+      g.fillRect(rng.range(0, 256), rng.range(0, 256), 2, 2);
+    }
+    g.fillStyle = '#c9a227';
+    g.fillRect(124, 0, 8, 256);
+    out.asphalt = tex(c, 6, 6);
   }
-  ctx.globalAlpha = 1;
-}
 
-export function asphaltTexture() {
-  const [c, ctx] = makeCanvas(256, 256);
-  ctx.fillStyle = '#3a3a40'; ctx.fillRect(0, 0, 256, 256);
-  speckle(ctx, 256, 256, 2600, ['#4a4a52', '#2e2e34', '#55555e', '#63636c'], 2);
-  // Faded centre line dashes.
-  ctx.fillStyle = 'rgba(240,200,90,0.75)';
-  for (let y = 0; y < 256; y += 64) ctx.fillRect(124, y + 8, 8, 34);
-  // Worn tyre tracks.
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.fillRect(52, 0, 26, 256); ctx.fillRect(178, 0, 26, 256);
-  return toTexture(c, 6, 6);
-}
+  // --- Sidewalk slabs ------------------------------------------------------
+  {
+    const [c, g] = canvas(256, 256);
+    g.fillStyle = '#8d8578';
+    g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 900; i++) {
+      const v = rng.int(120, 155);
+      g.fillStyle = `rgb(${v},${v - 6},${v - 18})`;
+      g.fillRect(rng.range(0, 256), rng.range(0, 256), 3, 3);
+    }
+    g.strokeStyle = '#6d675c';
+    g.lineWidth = 3;
+    for (let i = 0; i <= 4; i++) {
+      g.beginPath(); g.moveTo(i * 64, 0); g.lineTo(i * 64, 256); g.stroke();
+      g.beginPath(); g.moveTo(0, i * 64); g.lineTo(256, i * 64); g.stroke();
+    }
+    out.sidewalk = tex(c, 8, 8);
+  }
 
-export function sandTexture() {
-  const [c, ctx] = makeCanvas(256, 256);
-  ctx.fillStyle = '#d9b380'; ctx.fillRect(0, 0, 256, 256);
-  speckle(ctx, 256, 256, 3200, ['#e8c99a', '#c49a62', '#f0d6a8', '#b98d55'], 2);
-  return toTexture(c, 10, 10);
-}
+  // --- Sand ----------------------------------------------------------------
+  {
+    const [c, g] = canvas(256, 256);
+    g.fillStyle = '#d9b77c';
+    g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2200; i++) {
+      const v = rng.int(190, 235);
+      g.fillStyle = `rgb(${v},${v - 22},${v - 70})`;
+      g.fillRect(rng.range(0, 256), rng.range(0, 256), 2, 2);
+    }
+    out.sand = tex(c, 10, 10);
+  }
 
-export function grassTexture() {
-  const [c, ctx] = makeCanvas(128, 128);
-  ctx.fillStyle = '#4a6b35'; ctx.fillRect(0, 0, 128, 128);
-  speckle(ctx, 128, 128, 1400, ['#5d8143', '#3c5a2c', '#6d9450'], 2);
-  return toTexture(c, 12, 12);
-}
-
-const FACADE_BASE = ['#c96f4a', '#7d8aa0', '#b8a06a', '#8a6f8e', '#5f7d6a'];
-const FACADE_TRIM = ['#f2e3c9', '#2f3a4a', '#fff1d6', '#e8d8c0', '#dfe8e0'];
-
-// Five facade variants: warm stucco blocks with rows of lit windows, a shop
-// awning at street level and a parapet line at the top.
-export function facadeTextures() {
-  const out = [];
-  for (let v = 0; v < 5; v++) {
-    const [c, ctx] = makeCanvas(256, 512);
-    ctx.fillStyle = FACADE_BASE[v]; ctx.fillRect(0, 0, 256, 512);
-    speckle(ctx, 256, 512, 900, ['#00000022', '#ffffff18'], 3);
-    // Parapet and trim bands.
-    ctx.fillStyle = FACADE_TRIM[v]; ctx.fillRect(0, 0, 256, 14);
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(0, 14, 256, 6);
-    // Window grid: 4 across, 7 up, some lit gold, some dark, some shuttered.
-    for (let row = 0; row < 7; row++) {
-      for (let col = 0; col < 4; col++) {
-        const x = 18 + col * 58, y = 44 + row * 58;
-        const lit = Math.random();
-        ctx.fillStyle = '#20242c'; ctx.fillRect(x - 3, y - 3, 44, 54);
-        if (lit < 0.55) {
-          const warm = ['#ffd27a', '#ffb84d', '#ffe9a8'][(Math.random() * 3) | 0];
-          ctx.fillStyle = warm; ctx.fillRect(x, y, 38, 48);
-          ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 17, y, 3, 48);
-        } else if (lit < 0.8) {
-          ctx.fillStyle = '#3d4a5c'; ctx.fillRect(x, y, 38, 48);
-          ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(x, y, 38, 14);
-        } else {
-          ctx.fillStyle = '#6b5a48'; ctx.fillRect(x, y, 38, 48);
-          ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          for (let s = 0; s < 4; s++) ctx.fillRect(x, y + 8 + s * 11, 38, 3);
-        }
+  // --- Wood planks (marina deck) -------------------------------------------
+  {
+    const [c, g] = canvas(256, 256);
+    for (let p = 0; p < 8; p++) {
+      const v = rng.int(96, 130);
+      g.fillStyle = `rgb(${v + 28},${v - 4},${v - 52})`;
+      g.fillRect(0, p * 32, 256, 32);
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(0, p * 32, 256, 2);
+      for (let i = 0; i < 14; i++) {
+        g.fillStyle = 'rgba(0,0,0,0.12)';
+        g.fillRect(rng.range(0, 256), p * 32 + rng.range(4, 28), 18, 2);
       }
     }
-    // Street-level shopfront with awning.
-    ctx.fillStyle = '#1c1a20'; ctx.fillRect(10, 452, 236, 60);
-    ctx.fillStyle = ['#ff5d8f', '#38bdf8', '#facc15', '#4ade80', '#fb923c'][v];
-    ctx.fillRect(10, 436, 236, 16);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center';
-    ctx.fillText(['CAFÉ SOL', 'TIDES BAR', 'PALM MART', 'SURF SHOP', 'NEON GRILL'][v], 128, 490);
-    out.push(toTexture(c));
+    out.wood = tex(c, 6, 6);
   }
+
+  // --- Water: deep teal with moving light streaks --------------------------
+  {
+    const [c, g] = canvas(256, 256);
+    const grad = g.createLinearGradient(0, 0, 256, 256);
+    grad.addColorStop(0, '#0e5f6e');
+    grad.addColorStop(0.5, '#0a4a5c');
+    grad.addColorStop(1, '#0d6b74');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 60; i++) {
+      g.strokeStyle = `rgba(190,235,240,${rng.range(0.05, 0.22)})`;
+      g.lineWidth = rng.range(1, 3);
+      const y = rng.range(0, 256);
+      g.beginPath();
+      g.moveTo(rng.range(0, 200), y);
+      g.lineTo(rng.range(60, 256), y + rng.range(-8, 8));
+      g.stroke();
+    }
+    out.water = tex(c, 12, 12);
+  }
+
+  // --- Building facades: five variants, lit windows, warm sunset grade -----
+  const facadePalettes = [
+    ['#c96f4a', '#e8a56b', '#7d3b2e'],
+    ['#4a7d8c', '#6fa8b5', '#2e4a56'],
+    ['#b59a5e', '#d9bd7f', '#6d5626'],
+    ['#8c5a7d', '#b57fa8', '#4d2c46'],
+    ['#5e7d4a', '#8aa86f', '#33482a'],
+  ];
+  facadePalettes.forEach((pal, idx) => {
+    const [c, g] = canvas(256, 256);
+    g.fillStyle = pal[0];
+    g.fillRect(0, 0, 256, 256);
+    // faint vertical panel seams
+    g.fillStyle = 'rgba(0,0,0,0.12)';
+    for (let x = 0; x < 256; x += 32) g.fillRect(x, 0, 2, 256);
+    // windows: 6 columns x 8 rows, some lit gold
+    for (let r = 0; r < 8; r++) {
+      for (let col = 0; col < 6; col++) {
+        const x = 14 + col * 40;
+        const y = 12 + r * 30;
+        const lit = rng.chance(0.55);
+        g.fillStyle = lit ? (rng.chance(0.7) ? '#ffd27a' : '#ff9d5c') : '#20242e';
+        g.fillRect(x, y, 24, 18);
+        g.fillStyle = 'rgba(255,255,255,0.14)';
+        g.fillRect(x, y, 24, 4);
+      }
+    }
+    // ground-floor shopfront band
+    g.fillStyle = pal[2];
+    g.fillRect(0, 236, 256, 20);
+    out['facade' + idx] = tex(c, 1, 1);
+  });
+
+  // --- Roof: dark with AC boxes and a water tank hint -----------------------
+  {
+    const [c, g] = canvas(128, 128);
+    g.fillStyle = '#3a3a40';
+    g.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 500; i++) {
+      const v = rng.int(48, 76);
+      g.fillStyle = `rgb(${v},${v},${v + 4})`;
+      g.fillRect(rng.range(0, 128), rng.range(0, 128), 2, 2);
+    }
+    g.fillStyle = '#55555e';
+    g.fillRect(20, 24, 26, 18);
+    g.fillRect(80, 70, 22, 16);
+    out.roof = tex(c, 2, 2);
+  }
+
+  // --- Palm bark -------------------------------------------------------------
+  {
+    const [c, g] = canvas(128, 128);
+    g.fillStyle = '#6d4c33';
+    g.fillRect(0, 0, 128, 128);
+    for (let y = 0; y < 128; y += 10) {
+      g.fillStyle = 'rgba(0,0,0,0.3)';
+      g.fillRect(0, y, 128, 3);
+      g.fillStyle = 'rgba(255,220,170,0.12)';
+      g.fillRect(0, y + 3, 128, 2);
+    }
+    out.palmBark = tex(c, 1, 2);
+  }
+
+  // --- Palm leaf -------------------------------------------------------------
+  {
+    const [c, g] = canvas(128, 128);
+    g.clearRect(0, 0, 128, 128);
+    g.strokeStyle = '#2f7d3a';
+    g.lineWidth = 5;
+    g.lineCap = 'round';
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(64, 64);
+      g.quadraticCurveTo(64 + Math.cos(a) * 34, 64 + Math.sin(a) * 34, 64 + Math.cos(a) * 58, 64 + Math.sin(a) * 58 + 14);
+      g.stroke();
+    }
+    out.palmLeaf = tex(c, 1, 1);
+  }
+
+  // --- Lighthouse stripes ----------------------------------------------------
+  {
+    const [c, g] = canvas(128, 256);
+    for (let s = 0; s < 6; s++) {
+      g.fillStyle = s % 2 === 0 ? '#e8452c' : '#f5f0e6';
+      g.fillRect(0, s * 44, 128, 44);
+    }
+    out.lighthouse = tex(c, 1, 1);
+  }
+
+  // --- Neon signs ------------------------------------------------------------
+  const signs = [
+    ['PALM MART', '#ff5c8a'],
+    ['NEON GRILL', '#ffb347'],
+    ['SUNSET FM', '#7df0ff'],
+    ['HARBOUR', '#9dff6e'],
+    ['HOTEL VERDE', '#ff8a5c'],
+  ];
+  signs.forEach(([text, color], i) => {
+    const [c, g] = canvas(512, 128);
+    g.fillStyle = '#14101c';
+    g.fillRect(0, 0, 512, 128);
+    g.font = 'bold 64px Arial, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.shadowColor = color;
+    g.shadowBlur = 26;
+    g.fillStyle = color;
+    g.fillText(text, 256, 66);
+    g.shadowBlur = 0;
+    g.fillStyle = '#ffffff';
+    g.fillText(text, 256, 66);
+    out['neon' + i] = tex(c, 1, 1);
+  });
+
+  // --- Crosswalk ---------------------------------------------------------------
+  {
+    const [c, g] = canvas(128, 128);
+    g.fillStyle = '#33333a';
+    g.fillRect(0, 0, 128, 128);
+    g.fillStyle = '#e8e4da';
+    for (let i = 0; i < 6; i++) g.fillRect(8 + i * 20, 8, 10, 112);
+    out.crosswalk = tex(c, 1, 1);
+  }
+
+  // --- Soft round smoke puff ---------------------------------------------------
+  {
+    const [c, g] = canvas(128, 128);
+    const grad = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+    grad.addColorStop(0, 'rgba(200,200,200,0.85)');
+    grad.addColorStop(0.6, 'rgba(160,160,160,0.4)');
+    grad.addColorStop(1, 'rgba(160,160,160,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    out.smoke = tex(c, 1, 1);
+  }
+
+  // --- Sunset sky gradient (equirect-ish strip) -------------------------------
+  {
+    const [c, g] = canvas(64, 512);
+    const grad = g.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0.0, '#3d2b7a');
+    grad.addColorStop(0.35, '#7b4fd0');
+    grad.addColorStop(0.55, '#e2607a');
+    grad.addColorStop(0.72, '#ff9a52');
+    grad.addColorStop(0.85, '#ffb347');
+    grad.addColorStop(1.0, '#2a1f3d');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 512);
+    out.sky = tex(c, 1, 1);
+  }
+
   return out;
-}
-
-export function woodTexture() {
-  const [c, ctx] = makeCanvas(256, 128);
-  ctx.fillStyle = '#7a5230'; ctx.fillRect(0, 0, 256, 128);
-  for (let p = 0; p < 5; p++) {
-    ctx.fillStyle = p % 2 ? '#835a36' : '#6f4a2a';
-    ctx.fillRect(0, p * 26, 256, 24);
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    for (let i = 0; i < 30; i++) ctx.fillRect(Math.random() * 256, p * 26 + 4 + Math.random() * 16, 8 + Math.random() * 20, 1);
-  }
-  return toTexture(c, 4, 1);
-}
-
-export function waterNormalTexture() {
-  // A soft blue-green noise field used as the sea's normal-ish detail map.
-  const [c, ctx] = makeCanvas(256, 256);
-  ctx.fillStyle = '#1d6f8f'; ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 90; i++) {
-    ctx.strokeStyle = `rgba(255,255,255,${0.05 + Math.random() * 0.12})`;
-    ctx.lineWidth = 1 + Math.random() * 2;
-    ctx.beginPath();
-    const y = Math.random() * 256;
-    ctx.moveTo(0, y);
-    ctx.bezierCurveTo(80, y - 12 + Math.random() * 24, 170, y - 12 + Math.random() * 24, 256, y);
-    ctx.stroke();
-  }
-  speckle(ctx, 256, 256, 500, ['#2a8fb5', '#155e7d'], 2);
-  return toTexture(c, 8, 8);
-}
-
-export function palmBarkTexture() {
-  const [c, ctx] = makeCanvas(128, 256);
-  ctx.fillStyle = '#6b4a2f'; ctx.fillRect(0, 0, 128, 256);
-  for (let y = 0; y < 256; y += 14) {
-    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(0, y, 128, 4);
-    ctx.fillStyle = 'rgba(255,220,170,0.12)'; ctx.fillRect(0, y + 4, 128, 3);
-  }
-  return toTexture(c, 1, 2);
-}
-
-export function palmLeafTexture() {
-  const [c, ctx] = makeCanvas(256, 128);
-  ctx.clearRect(0, 0, 256, 128);
-  ctx.strokeStyle = '#2f7d3a'; ctx.lineWidth = 5; ctx.lineCap = 'round';
-  for (let i = 0; i < 9; i++) {
-    const x0 = 128, y0 = 120, ang = Math.PI * (0.15 + (i / 8) * 0.7);
-    const x1 = x0 + Math.cos(Math.PI + ang) * 110, y1 = y0 - Math.sin(ang) * 95;
-    ctx.beginPath(); ctx.moveTo(x0, y0);
-    ctx.quadraticCurveTo((x0 + x1) / 2, y1 - 30, x1, y1 + 18);
-    ctx.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-export function neonSignTexture(text, colour) {
-  const [c, ctx] = makeCanvas(512, 128);
-  ctx.fillStyle = '#14081c'; ctx.fillRect(0, 0, 512, 128);
-  ctx.strokeStyle = colour; ctx.lineWidth = 4; ctx.strokeRect(8, 8, 496, 112);
-  ctx.font = '900 64px "Arial Black", Arial, sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.shadowColor = colour; ctx.shadowBlur = 26;
-  ctx.fillStyle = colour;
-  ctx.fillText(text, 256, 68);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(text, 256, 68);
-  return toTexture(c);
-}
-
-export function badgeTexture() {
-  // VCPD door badge: gold star on navy, drawn once and reused on cruisers.
-  const [c, ctx] = makeCanvas(128, 128);
-  ctx.clearRect(0, 0, 128, 128);
-  ctx.fillStyle = '#0f2a52'; ctx.beginPath(); ctx.arc(64, 64, 58, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#ffd23e'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(64, 64, 52, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = '#ffd23e';
-  ctx.beginPath();
-  for (let i = 0; i < 5; i++) {
-    const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
-    const a2 = a + Math.PI / 5;
-    ctx.lineTo(64 + Math.cos(a) * 34, 64 + Math.sin(a) * 34);
-    ctx.lineTo(64 + Math.cos(a2) * 15, 64 + Math.sin(a2) * 15);
-  }
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#0f2a52'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
-  ctx.fillText('VCPD', 64, 104);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-export function crosswalkTexture() {
-  const [c, ctx] = makeCanvas(256, 256);
-  ctx.fillStyle = '#2b2b30'; ctx.fillRect(0, 0, 256, 256);
-  ctx.fillStyle = 'rgba(240,240,235,0.85)';
-  for (let i = 0; i < 8; i++) ctx.fillRect(10 + i * 31, 20, 18, 216);
-  return toTexture(c);
 }

@@ -1,130 +1,143 @@
-// Verde Cay — world constants, story jobs, crew and radio stations.
-// All names, places and people here are invented for this game.
-
-export const WORLD = {
-  // City footprint in metres. X runs west(-) to east(+), Z runs north(-) to south(+).
-  half: 230,
-  // The sea begins at this X and runs east; the beach sits just west of it.
-  seaX: 168,
-  beachX: 148,
-  // Main coastal boulevard runs north-south along the beach.
-  boulevardX: 132,
-  sunsetHour: 18.7,
+// Verde Cay: every number the game shares. The city is a grid of blocks west
+// of a palm boulevard; east of the boulevard is beach, then open sea. The
+// marina sits at the south-east corner, the lighthouse on the north-east point.
+export const CITY = {
+  block: 44, // block edge, metres
+  street: 14, // street width, metres
+  cols: 6, // blocks east-west (x)
+  rows: 6, // blocks north-south (z)
+  // Boulevard centre line (x), beach starts east of it.
+  boulevardX: 176,
+  beachX0: 196,
+  seaX0: 232,
+  marina: { x: 150, z: 150, r: 34 },
+  lighthouse: { x: 196, z: -168 },
+  // Where the player starts: parked on Palm Boulevard, on the road.
+  spawn: { x: 176, z: 30, heading: Math.PI },
 };
 
-export const STREETS = {
-  // North-south avenues (x positions) and east-west streets (z positions).
-  avenues: [-96, -48, 0, 48, 96, 132],
-  cross: [-150, -90, -30, 30, 90, 150],
-  roadHalf: 7,
+export const SUNSET = {
+  skyTop: '#7b4fd0',
+  skyMid: '#e2607a',
+  skyLow: '#ff9a52',
+  sun: '#ffd9a0',
+  fog: '#e88a6d',
 };
 
 export const CREW = [
-  { name: 'ANA', role: 'Driver', ability: 'Nitro boost — hold SHIFT in a car for a burst of speed', colour: '#f472b6' },
-  { name: 'MARCO', role: 'Muscle', ability: 'Takes half damage in a fight', colour: '#60a5fa' },
-  { name: 'ROSA', role: 'Fixer', ability: 'Repairs any car to full at the garage, free', colour: '#4ade80' },
-  { name: 'KIKI', role: 'Lookout', ability: 'Police lose your trail twice as fast', colour: '#facc15' },
-  { name: 'UNCLE SOL', role: 'The Old Man', ability: 'Every job pays 15% more', colour: '#fb923c' },
+  { name: 'ANA', role: 'Driver', skill: 'Hot-wires any car in seconds' },
+  { name: 'MARCO', role: 'Muscle', skill: 'Clears a roadblock the loud way' },
+  { name: 'ROSA', role: 'Fixer', skill: 'Sells the take, no questions' },
+  { name: 'KIKI', role: 'Lookout', skill: 'Sees the VCPD coming first' },
+  { name: 'UNCLE SOL', role: 'The Old Man', skill: 'Knows every tide in the Cay' },
 ];
 
-// The eight story jobs. Each job is a short chain of stages; a stage is complete
-// when the player reaches its marker (or, for stage kinds, finishes the action).
-// kind: 'goto' (reach a place), 'steal' (enter the marked car), 'chase'
-// (outrun the police to the marker), 'boat' (board the boat and reach open water).
+export const WEAPONS = [
+  { name: 'FIST', damage: 12, rate: 0.45, range: 2.4, auto: false },
+  { name: 'PISTOL', damage: 26, rate: 0.32, range: 60, auto: false },
+  { name: 'SMG', damage: 14, rate: 0.09, range: 48, auto: true },
+];
+
+// Eight story jobs. Each job has stages; a stage is finished by reaching its
+// target, stealing its car, or breaking its roadblock. Dialogue is the crew
+// talking over the job, one line per stage.
 export const JOBS = [
   {
-    name: 'FIRST LIGHT', giver: 'ANA',
-    brief: 'Ana left a Comet at the marina gate. Go get it before the night shift clocks in.',
+    title: 'FIRST LIGHT',
+    crew: 'ANA',
+    briefing: 'The Comet is parked on Palm Boulevard. Take it before the VCPD tow it.',
     stages: [
-      { kind: 'goto', text: 'Reach the marina gate', x: 96, z: 120 },
-      { kind: 'steal', text: 'Take the Coral Comet RS', x: 96, z: 120 },
+      { objective: 'Reach the Coral Comet RS', kind: 'reach', target: { x: 176, z: 30 }, dialogue: 'Easy does it. The Cay is ours tonight.' },
+      { objective: 'Take the Coral Comet RS', kind: 'steal', dialogue: 'She purrs, doesn\'t she? Drive, we are burning daylight.' },
     ],
-    reward: 800, respect: 6,
-    line: 'ANA: “Easy does it. The Cay is ours tonight.”',
+    reward: 920,
   },
   {
-    name: 'PAPER TRAIL', giver: 'UNCLE SOL',
-    brief: 'Sol needs a ledger lifted from a courier van parked on Palm Row. Quiet hands, no sirens.',
+    title: 'PALM HEIST',
+    crew: 'ROSA',
+    briefing: 'Rosa has a buyer for a Sunset Bank van. Lift it off the boulevard.',
     stages: [
-      { kind: 'goto', text: 'Reach Palm Row', x: -48, z: -30 },
-      { kind: 'steal', text: 'Lift the courier van', x: -48, z: -30 },
-      { kind: 'goto', text: 'Bring the ledger to Sol’s cafe', x: 0, z: 90 },
+      { objective: 'Reach the bank van on Marina Road', kind: 'reach', target: { x: 120, z: 110 }, dialogue: 'The van stops at the lights. That is our window.' },
+      { objective: 'Steal the bank van', kind: 'steal', dialogue: 'Rosa already has the buyer on the line. Do not scratch it.' },
     ],
-    reward: 1400, respect: 8,
-    line: 'UNCLE SOL: “A city runs on paper, kid. We just move it around.”',
+    reward: 1480,
   },
   {
-    name: 'NEON RAIN', giver: 'ROSA',
-    brief: 'Rosa’s garage needs parts from the north depot. The VCPD has the avenue watched — drive smart.',
+    title: 'LOW TIDE',
+    crew: 'KIKI',
+    briefing: 'Kiki spotted a VCPD evidence locker down by the docks. Quiet in, quiet out.',
     stages: [
-      { kind: 'goto', text: 'Reach the north depot', x: 48, z: -150 },
-      { kind: 'goto', text: 'Deliver the parts to Rosa’s garage', x: -96, z: 30 },
+      { objective: 'Reach the docks without raising the alarm', kind: 'reach', target: { x: 160, z: 140 }, dialogue: 'Eyes on the roofs. If a heli lifts, we are done.' },
+      { objective: 'Grab the evidence crate', kind: 'reach', target: { x: 176, z: 150 }, dialogue: 'Got it. Now walk away like you own the place.' },
     ],
-    reward: 1800, respect: 10,
-    line: 'ROSA: “Parts are parts. The night is the hard bit.”',
+    reward: 2100,
   },
   {
-    name: 'HARBOR LIGHTS', giver: 'MARCO',
-    brief: 'Marco’s crew is boxed in on the boulevard at sunset. Punch through the roadblock and bring them home.',
+    title: 'HARBOR LIGHTS',
+    crew: 'MARCO',
+    briefing: 'The VCPD sealed the boulevard for the mayor\'s parade. Marco says: break it.',
     stages: [
-      { kind: 'chase', text: 'Break the boulevard roadblock', x: 132, z: 40 },
-      { kind: 'goto', text: 'Lose the tail — reach the lighthouse point', x: 150, z: -170 },
+      { objective: 'Break the boulevard roadblock', kind: 'roadblock', target: { x: 176, z: -40 }, dialogue: 'They set the whole boulevard on us. Good. More road to run.' },
+      { objective: 'Lose the tail — reach the lighthouse point', kind: 'reach', target: { x: 196, z: -168 }, dialogue: 'Slip the cordon, cut across the marina, and run for open water — once we are past the breakwater they cannot hold us.' },
     ],
-    reward: 3200, respect: 16,
-    line: 'MARCO: “They set the whole boulevard on us. Good. More road to run.”',
+    reward: 3150,
   },
   {
-    name: 'LOW TIDE', giver: 'KIKI',
-    brief: 'Kiki spotted a patrol gap at the marina. Slip a crate of “fishing gear” onto the night boat.',
+    title: 'GOLDEN HOUR',
+    crew: 'ANA',
+    briefing: 'A rival crew is racing us to the old casino. Beat them to the vault.',
     stages: [
-      { kind: 'goto', text: 'Reach the marina docks', x: 150, z: 150 },
-      { kind: 'goto', text: 'Sneak the crate to the night boat', x: 168, z: 168 },
+      { objective: 'Outrun the rival crew to the casino', kind: 'reach', target: { x: 40, z: -120 }, dialogue: 'They drive like tourists. Leave them at the lights.' },
+      { objective: 'Hold the casino steps for 20 seconds', kind: 'hold', target: { x: 40, z: -120 }, holdSeconds: 20, dialogue: 'Vault is open. Rosa is already counting.' },
     ],
-    reward: 2600, respect: 12,
-    line: 'KIKI: “Two minutes of quiet water. That’s all we need.”',
+    reward: 4200,
   },
   {
-    name: 'GOLD HOUR', giver: 'ANA',
-    brief: 'A rival crew is showing off on the boulevard. Out-drive them, then out-run the VCPD that follows.',
+    title: 'STATIC',
+    crew: 'KIKI',
+    briefing: 'The VCPD tapped our radio. Kiki needs the jammer van, moving, now.',
     stages: [
-      { kind: 'chase', text: 'Beat the rival crew to the beach turn', x: 132, z: -60 },
-      { kind: 'goto', text: 'Shake the police — reach the south car park', x: 96, z: 168 },
+      { objective: 'Intercept the jammer van', kind: 'reach', target: { x: 90, z: 60 }, dialogue: 'The van is rolling. Get alongside and take it.' },
+      { objective: 'Drive the jammer van to the garage', kind: 'reach', target: { x: 60, z: 90 }, dialogue: 'Signal is dead. The Cay is ours again.' },
     ],
-    reward: 4100, respect: 18,
-    line: 'ANA: “They brought a fast car. We brought a faster plan.”',
+    reward: 5300,
   },
   {
-    name: 'THE LONG WAY', giver: 'UNCLE SOL',
-    brief: 'Sol is moving the crew’s savings by boat. Escort the launch from the marina to the harbour mouth.',
+    title: 'HIGH WATER',
+    crew: 'UNCLE SOL',
+    briefing: 'Uncle Sol\'s boat is impounded at the marina. Spring it before the tide turns.',
     stages: [
-      { kind: 'boat', text: 'Board the launch at the marina', x: 168, z: 140 },
-      { kind: 'boat', text: 'Escort the launch to the harbour mouth', x: 210, z: 60 },
+      { objective: 'Reach the impounded boat', kind: 'reach', target: { x: 150, z: 150 }, dialogue: 'She is still there. Sol says the tide waits for no one.' },
+      { objective: 'Steal the Wave Runner', kind: 'stealBoat', dialogue: 'Cast off! The harbour police will be on us in seconds.' },
     ],
-    reward: 5200, respect: 20,
-    line: 'UNCLE SOL: “The sea keeps secrets better than this city does.”',
+    reward: 6800,
   },
   {
-    name: 'OPEN WATER', giver: 'MARCO',
-    brief: 'The whole VCPD is on the docks. Take the speedboat, cut across the marina and run for open water.',
+    title: 'OPEN WATER',
+    crew: 'MARCO',
+    briefing: 'The whole VCPD is on the docks. One boat, one run, open water.',
     stages: [
-      { kind: 'boat', text: 'Board the speedboat', x: 176, z: 120 },
-      { kind: 'boat', text: 'Reach open water — past the breakwater', x: 260, z: 40 },
+      { objective: 'Reach open water', kind: 'openWater', target: { x: 320, z: 60 }, dialogue: 'Past the breakwater they cannot hold us. Run for the horizon.' },
     ],
-    reward: 9000, respect: 30,
-    line: 'MARCO: “Slip the cordon, cut across the marina, and run for open water — once we are past the breakwater they cannot hold us.”',
+    reward: 12400,
   },
 ];
 
 export const RADIO = [
-  { name: 'WAVE 96.1 — SUNSET FM', style: 'warm synth-pop', bpm: 96, root: 220, scale: [0, 3, 5, 7, 10] },
-  { name: 'CAY 104 — BOULEVARD BEATS', style: 'driving electro', bpm: 122, root: 196, scale: [0, 2, 3, 7, 8] },
-  { name: 'HARBOUR 88 — NIGHT JAZZ', style: 'late-night keys', bpm: 72, root: 174.6, scale: [0, 2, 4, 7, 9] },
+  { name: 'SUNSET FM', freq: '96.1', style: 'synthwave', bpm: 96, root: 55 },
+  { name: 'WAVE 96.1', freq: '96.1', style: 'island', bpm: 78, root: 65.41 },
+  { name: 'PALM 104', freq: '104.3', style: 'electro', bpm: 122, root: 49 },
 ];
 
-export const HERO_CAR = { name: 'Coral Comet RS', colour: 0xff4d1c, topSpeed: 62, accel: 26 };
+// Wanted: stars rise with crimes, fall when the player is out of sight.
+export const WANTED = {
+  steal: 1,
+  shoot: 2,
+  kill: 2,
+  speedNearPolice: 1,
+  decaySeconds: 26,
+  heliAt: 3,
+  boatsAt: 3,
+};
 
-export const SAVE_KEY = 'verdecay-save-v3';
-
-export function defaultSave() {
-  return { money: 1250, respect: 24, jobIndex: 0, health: 100, armour: 60, garage: ['Coral Comet RS'] };
-}
+export const SAVE_KEY = 'verde-cay-save-v1';
